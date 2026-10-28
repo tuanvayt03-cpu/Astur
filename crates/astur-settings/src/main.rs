@@ -13,6 +13,9 @@
 // flash and could briefly be tiled).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod i18n;
+use i18n::tr;
+
 use astur_config::{
     apply_updates, chord_label, color_to_hex, compile_keys, config_path, default_config_text,
     default_navbar_text, disk_root, format_chord, format_clock, format_date, format_hotkeys,
@@ -53,6 +56,7 @@ fn main() -> eframe::Result {
         config_path("ASTUR_CONFIG", "astur.conf"),
         config_path("ASTUR_NAVBAR", "navbar.conf"),
     ];
+    i18n::load(&paths[0].with_file_name("ui-language.txt"));
     // One Settings window at a time: two would interleave writes and undo
     // stacks over the same files. The OS drops the lock however this process
     // ends. No config folder yet (first run) or no lock file: skip the check.
@@ -425,19 +429,19 @@ impl Find {
             if self.hits > 1 {
                 ui.add_space(18.0);
             }
-            let title = RichText::new(format!("{title}  \u{203A}"))
+            let title = RichText::new(format!("{}  \u{203A}", tr(title)))
                 .size(20.0)
                 .family(semibold());
             if ui
                 .add(egui::Label::new(title).sense(Sense::click()))
-                .on_hover_text("Open this page")
+                .on_hover_text(tr("Open this page"))
                 .clicked()
             {
                 self.goto = Some(page);
             }
         }
         if let Some(s) = self.section.take() {
-            section_title(ui, s);
+            section_title(ui, tr(s));
         }
     }
 }
@@ -946,13 +950,40 @@ impl App {
         ui.add_space(14.0);
         ui.horizontal(|ui| {
             ui.add_space(6.0);
-            ui.label(RichText::new("Astur Settings").size(13.0).color(sub(ui)));
+            ui.label(
+                RichText::new(tr("Astur Settings"))
+                    .size(13.0)
+                    .color(sub(ui)),
+            );
         });
-        ui.add_space(10.0);
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.label(tr("Language"));
+            let mut selected = i18n::language().to_string();
+            egui::ComboBox::from_id_salt("astur_ui_language")
+                .selected_text(if selected == "vi" {
+                    "Tiếng Việt"
+                } else {
+                    "English"
+                })
+                .width(125.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut selected, "en".to_owned(), "English");
+                    ui.selectable_value(&mut selected, "vi".to_owned(), "Tiếng Việt");
+                });
+            if selected != i18n::language() {
+                if let Err(error) =
+                    i18n::save(&self.paths[0].with_file_name("ui-language.txt"), &selected)
+                {
+                    self.error = Some(format!("Couldn't save display language: {error}"));
+                }
+            }
+        });
+        ui.add_space(8.0);
         let search = ui.add(
             egui::TextEdit::singleline(&mut self.query)
                 .id(search_id())
-                .hint_text("Find a setting  (Ctrl+F)")
+                .hint_text(tr("Find a setting  (Ctrl+F)"))
                 .desired_width(f32::INFINITY)
                 .margin(Margin::symmetric(10, 6)),
         );
@@ -966,11 +997,11 @@ impl App {
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
                         ui.add_space(12.0);
-                        ui.label(RichText::new(group).size(12.0).color(sub(ui)));
+                        ui.label(RichText::new(tr(group)).size(12.0).color(sub(ui)));
                     });
                 }
                 let selected = self.page == page && !self.find.on();
-                if nav_item(ui, selected, icon, title).clicked() {
+                if nav_item(ui, selected, icon, tr(title)).clicked() {
                     self.page = page;
                     self.query.clear();
                     // A key chip left listening would wake up on return.
@@ -988,16 +1019,16 @@ impl App {
             NAV.iter().find(|n| n.0 == self.page).map_or("", |n| n.1)
         };
         ui.horizontal(|ui| {
-            ui.label(RichText::new(title).size(28.0).family(semibold()));
+            ui.label(RichText::new(tr(title)).size(28.0).family(semibold()));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add_space(20.0);
                 let icons = has_icons(ui);
                 if ui
                     .add_enabled(
                         self.can_redo(),
-                        egui::Button::new(glyph(icons, ICON_REDO, "Redo")),
+                        egui::Button::new(glyph(icons, ICON_REDO, tr("Redo"))),
                     )
-                    .on_hover_text("Redo (Ctrl+Y)")
+                    .on_hover_text(tr("Redo (Ctrl+Y)"))
                     .clicked()
                 {
                     self.redo();
@@ -1005,9 +1036,9 @@ impl App {
                 if ui
                     .add_enabled(
                         self.can_undo(),
-                        egui::Button::new(glyph(icons, ICON_UNDO, "Undo")),
+                        egui::Button::new(glyph(icons, ICON_UNDO, tr("Undo"))),
                     )
-                    .on_hover_text("Undo (Ctrl+Z)")
+                    .on_hover_text(tr("Undo (Ctrl+Z)"))
                     .clicked()
                 {
                     self.undo();
@@ -1015,7 +1046,7 @@ impl App {
                 if self.applied != self.session
                     && ui
                         .button("Undo all")
-                        .on_hover_text("Undo all changes from this session")
+                        .on_hover_text(tr("Undo all changes from this session"))
                         .clicked()
                 {
                     self.undo_all();
@@ -1060,8 +1091,8 @@ impl App {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(text).family(semibold()));
-                    keep = ui.button("Keep").clicked();
-                    back = ui.button("Undo").clicked();
+                    keep = ui.button(tr("Keep")).clicked();
+                    back = ui.button(tr("Undo")).clicked();
                 });
             });
         if keep {
@@ -1073,7 +1104,7 @@ impl App {
 
     /// The pill beside Undo: whether the last edit reached the files.
     fn status(&mut self, ui: &mut Ui) {
-        if self.read_error.is_some() && ui.button("Retry").clicked() {
+        if self.read_error.is_some() && ui.button(tr("Retry")).clicked() {
             self.reload();
         }
         let v = ui.visuals();
@@ -1094,10 +1125,10 @@ impl App {
             .corner_radius(CornerRadius::same(12))
             .inner_margin(Margin::symmetric(10, 4))
             .show(ui, |ui| {
-                ui.label(RichText::new(text).size(12.0).color(color))
+                ui.label(RichText::new(tr(text)).size(12.0).color(color))
             })
             .response
-            .on_hover_text("Changes apply as you make them; Astur reloads them within a second. A list with a red row keeps its last good version in the file until the row is fixed.");
+            .on_hover_text(tr("Changes apply as you make them; Astur reloads them within a second. A list with a red row keeps its last good version in the file until the row is fixed."));
     }
 
     fn toast_ui(&mut self, ctx: &egui::Context) {
@@ -1115,8 +1146,8 @@ impl App {
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(text);
-                        if self.can_undo() && ui.link("Undo").clicked() {
+                        ui.label(tr(text));
+                        if self.can_undo() && ui.link(tr("Undo")).clicked() {
                             self.undo();
                         }
                     });
@@ -1214,7 +1245,7 @@ impl App {
                 ui.label(text);
                 if !ok {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        review = ui.button("Review").clicked();
+                        review = ui.button(tr("Review")).clicked();
                     });
                 }
             });
@@ -1255,7 +1286,7 @@ impl App {
                 ui.horizontal(|ui| {
                     let key = c.main_key.label();
                     ui.label(format!("Hold {key}, the Astur key, for every shortcut below."));
-                    all_keys |= ui.link("Change").clicked();
+                    all_keys |= ui.link(tr("Change")).clicked();
                 });
                 ui.add_space(4.0);
                 egui::Grid::new("tips")
@@ -1269,7 +1300,7 @@ impl App {
                         }
                     });
                 ui.add_space(4.0);
-                all_keys |= ui.link("See every shortcut").clicked();
+                all_keys |= ui.link(tr("See every shortcut")).clicked();
             });
             section(ui, f, "Quick switches");
             for (meta, v, dv) in [
@@ -1333,7 +1364,7 @@ impl App {
             false,
             &ws_notes,
             |ui| {
-                go_ws = ui.button("Edit").clicked();
+                go_ws = ui.button(tr("Edit")).clicked();
                 ui.label(ws_keys.join(" "));
             },
         );
@@ -1458,7 +1489,7 @@ impl App {
             ui.add_space(8.0);
             if ui
                 .button("Copy cheat sheet")
-                .on_hover_text("Every shortcut as plain text, for a note or a printout")
+                .on_hover_text(tr("Every shortcut as plain text, for a note or a printout"))
                 .clicked()
             {
                 ui.ctx().copy_text(cheat_sheet(c));
@@ -1942,7 +1973,7 @@ impl App {
                         ui.visuals().warn_fg_color,
                         "An old setting (workspace_slide = false) turns workspace animation off.",
                     );
-                    fix = ui.button("Fix").clicked();
+                    fix = ui.button(tr("Fix")).clicked();
                 });
             });
         }
@@ -2047,7 +2078,7 @@ impl App {
                         RichText::new("YASB shows Astur's workspaces once it is set up under")
                             .color(sub(ui)),
                     );
-                    go_yasb = ui.link("Integrations").clicked();
+                    go_yasb = ui.link(tr("Integrations")).clicked();
                 });
             }
         }
@@ -2806,7 +2837,7 @@ impl App {
             ),
             |ui, _, a| {
                 cell(ui, &mut a.group, "Group", 90.0)
-                    .on_hover_text("The menu section it is listed under");
+                    .on_hover_text(tr("The menu section it is listed under"));
                 cell(ui, &mut a.label, "Label", 130.0);
                 target_ui(ui, &mut a.kind, &mut a.value);
                 ui.end_row();
@@ -2936,21 +2967,21 @@ impl App {
             let yaml = YASB_WIDGET_YAML.replace("ws://127.0.0.1:6123", &endpoint);
             card(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("YASB server address:");
+                    ui.label(tr("YASB server address:"));
                     ui.monospace(&endpoint);
-                    if ui.button("Copy address").clicked() {
+                    if ui.button(tr("Copy address")).clicked() {
                         ui.ctx().copy_text(endpoint.clone());
                     }
                 });
                 ui.add_space(8.0);
                 ui.label(RichText::new("Set up YASB").family(semibold()));
-                ui.label("1. Turn on YASB workspaces above.");
-                ui.label("2. Merge the widget YAML into YASB's config.yaml. If a widgets section already exists, add astur_workspaces inside it.");
+                ui.label(tr("1. Turn on YASB workspaces above."));
+                ui.label(tr("2. Merge the widget YAML into YASB's config.yaml. If a widgets section already exists, add astur_workspaces inside it."));
                 ui.horizontal_wrapped(|ui| {
-                    if ui.button("Copy widget YAML").clicked() {
+                    if ui.button(tr("Copy widget YAML")).clicked() {
                         ui.ctx().copy_text(yaml.clone());
                     }
-                    if ui.button("Copy example CSS").clicked() {
+                    if ui.button(tr("Copy example CSS")).clicked() {
                         ui.ctx().copy_text(YASB_WIDGET_CSS.to_string());
                     }
                 });
@@ -2960,11 +2991,11 @@ impl App {
                     .show(ui, |ui| {
                         egui::ScrollArea::horizontal().show(ui, |ui| ui.code(&yaml));
                     });
-                ui.label("3. Add astur_workspaces to your bar's widgets.left list. In that bar's window_flags, set windows_app_bar: true to reserve space for YASB.");
+                ui.label(tr("3. Add astur_workspaces to your bar's widgets.left list. In that bar's window_flags, set windows_app_bar: true to reserve space for YASB."));
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("4. Reload YASB, then turn off Astur's own bar on the");
-                    go_bar = ui.link("Status bar").clicked();
-                    ui.label("page.");
+                    ui.label(tr("4. Reload YASB, then turn off Astur's own bar on the"));
+                    go_bar = ui.link(tr("Status bar")).clicked();
+                    ui.label(tr("page."));
                 });
                 ui.add_space(4.0);
                 ui.label(RichText::new("Uses YASB's GlazeWM workspace widget. GlazeWM itself must be stopped. Binding-mode and tiling-direction widgets are not supported.").color(sub(ui)));
@@ -3011,7 +3042,7 @@ impl App {
             section_title(ui, "Config health");
             if self.disk.unknown_keys.is_empty() {
                 card(ui, |ui| {
-                    ui.label("Every line in both config files is understood.");
+                    ui.label(tr("Every line in both config files is understood."));
                 });
             }
             // The files' text, to say what a rename replaces. Read only while
@@ -3050,7 +3081,7 @@ impl App {
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             ui.add_enabled_ui(writable, |ui| {
-                                if ui.button("Remove line").clicked() {
+                                if ui.button(tr("Remove line")).clicked() {
                                     fix = Some((entry.clone(), None));
                                 }
                                 if let Some(h) = hint {
@@ -3077,7 +3108,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(path.display().to_string()).monospace());
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.button("Open in editor").clicked() {
+                            if ui.button(tr("Open in editor")).clicked() {
                                 let _ = std::process::Command::new("notepad.exe").arg(path).spawn();
                             }
                         });
@@ -3086,14 +3117,16 @@ impl App {
             }
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.button("Open folder").clicked() {
+                if ui.button(tr("Open folder")).clicked() {
                     if let Some(dir) = self.paths[0].parent() {
                         let _ = std::process::Command::new("explorer").arg(dir).spawn();
                     }
                 }
                 reload = ui
                     .button("Reload from disk")
-                    .on_hover_text("Take the files as they are now (after editing them by hand)")
+                    .on_hover_text(tr(
+                        "Take the files as they are now (after editing them by hand)",
+                    ))
                     .clicked();
             });
         }
@@ -3117,7 +3150,7 @@ impl App {
         } else {
             ui.add_enabled_ui(false, diagnostics);
         }
-        if !f.on() && ui.button("Open log").clicked() {
+        if !f.on() && ui.button(tr("Open log")).clicked() {
             let log = config_path("ASTUR_LOG", "astur.log");
             let _ = std::process::Command::new("notepad.exe").arg(log).spawn();
         }
@@ -3138,7 +3171,7 @@ impl App {
                 RichText::new(format!("Astur Settings {}", env!("CARGO_PKG_VERSION")))
                     .family(semibold()),
             );
-            ui.label("Edits astur.conf and navbar.conf. Changes apply as you make them and Astur reloads them live; Undo (Ctrl+Z) takes them back. Comments and hand edits in the files are kept.");
+            ui.label(tr("Edits astur.conf and navbar.conf. Changes apply as you make them and Astur reloads them live; Undo (Ctrl+Z) takes them back. Comments and hand edits in the files are kept."));
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 ui.hyperlink_to("astur.app", "https://astur.app");
@@ -3216,7 +3249,7 @@ fn row_noted(
     notes: &[(Level, String)],
     add: impl FnOnce(&mut Ui),
 ) -> bool {
-    if !f.matches(&[label, desc, key]) {
+    if !f.matches(&[label, desc, key, tr(label), tr(desc)]) {
         return false;
     }
     f.hit(ui);
@@ -3246,9 +3279,9 @@ fn row_noted(
                             let line = ui.text_style_height(&egui::TextStyle::Body);
                             ui.add_space(((RESET_SLOT - line) / 2.0).max(0.0));
                         }
-                        ui.label(label);
+                        ui.label(tr(label));
                         if !desc.is_empty() {
-                            ui.label(RichText::new(desc).small().color(sub(ui)));
+                            ui.label(RichText::new(tr(desc)).small().color(sub(ui)));
                         }
                         note_labels(ui, notes);
                     },
@@ -3377,11 +3410,11 @@ fn combo(ui: &mut Ui, salt: impl std::hash::Hash, v: &mut String, opts: &[(&str,
         .map_or(v.as_str(), |o| o.1)
         .to_string();
     egui::ComboBox::from_id_salt(salt)
-        .selected_text(shown)
+        .selected_text(tr(&shown).to_owned())
         .width(w)
         .show_ui(ui, |ui| {
             for &(o, l) in opts {
-                ui.selectable_value(v, o.to_string(), l);
+                ui.selectable_value(v, o.to_string(), tr(l));
             }
         });
 }
@@ -3435,14 +3468,14 @@ fn choice_row(
     }
     if row_core(ui, f, meta, v != d, false, |ui| {
         egui::ComboBox::from_id_salt(id)
-            .selected_text(choice_label(v, opts, browse))
+            .selected_text(tr(&choice_label(v, opts, browse)).to_owned())
             .width(ui.available_width().min(300.0))
             .height(400.0)
             .truncate()
             .show_ui(ui, |ui| {
                 for o in opts {
                     if ui
-                        .selectable_label(same_app(&o.command, v), &o.label)
+                        .selectable_label(same_app(&o.command, v), tr(&o.label))
                         .clicked()
                     {
                         v.clone_from(&o.command);
@@ -3457,8 +3490,8 @@ fn choice_row(
                     }
                 }
                 if ui
-                    .selectable_label(false, "Custom\u{2026}")
-                    .on_hover_text("Type it yourself, under More options")
+                    .selectable_label(false, tr("Custom\u{2026}"))
+                    .on_hover_text(tr("Type it yourself, under More options"))
                     .clicked()
                 {
                     open_more(ui.ctx(), salt);
@@ -3517,7 +3550,7 @@ fn excludes_row(ui: &mut Ui, f: &mut Find, v: &mut String, d: &str) {
         .into_iter()
         .collect();
     if row_noted(ui, f, meta, v != d, false, &notes, |ui| {
-        if ui.button("Add a folder\u{2026}").clicked() {
+        if ui.button(tr("Add a folder\u{2026}")).clicked() {
             start_pick(ui.ctx(), id, Pick::Folder, "");
         }
         let edit = ui.add(
@@ -3575,7 +3608,7 @@ fn shares_row(
                     *x = p as f32 / 100.0;
                 }
                 let x_button = egui::Button::new("\u{00D7}").frame(false).small();
-                if n > 1 && ui.add(x_button).on_hover_text("Remove").clicked() {
+                if n > 1 && ui.add(x_button).on_hover_text(tr("Remove")).clicked() {
                     remove = Some(i);
                 }
                 ui.add_space(14.0);
@@ -3583,7 +3616,7 @@ fn shares_row(
             if let Some(i) = remove {
                 v.remove(i);
             }
-            if ui.button("+ Add").clicked() {
+            if ui.button(tr("+ Add")).clicked() {
                 v.push(0.5);
             }
         });
@@ -3596,10 +3629,10 @@ fn shares_row(
 /// the app's file name). Returns the one clicked.
 fn window_picker(ui: &mut Ui) -> Option<OpenWindow> {
     let mut picked = None;
-    ui.menu_button("Pick an open window", |ui| {
+    ui.menu_button(tr("Pick an open window"), |ui| {
         let list = window_list(ui.ctx());
         if list.is_empty() {
-            ui.label("No app windows are open.");
+            ui.label(tr("No app windows are open."));
         }
         egui::ScrollArea::vertical()
             .max_height(360.0)
@@ -3614,7 +3647,7 @@ fn window_picker(ui: &mut Ui) -> Option<OpenWindow> {
             });
     })
     .response
-    .on_hover_text("Choose one of the windows open right now");
+    .on_hover_text(tr("Choose one of the windows open right now"));
     picked
 }
 
@@ -3876,8 +3909,8 @@ fn ws_table(
                     if last {
                         let icons = has_icons(ui);
                         remove = ui
-                            .add(egui::Button::new(glyph(icons, ICON_DELETE, "Remove")).frame(false))
-                            .on_hover_text("Remove this workspace. Its name, key and wallpaper stay in the file for when you add it back.")
+                            .add(egui::Button::new(glyph(icons, ICON_DELETE, tr("Remove"))).frame(false))
+                            .on_hover_text(tr("Remove this workspace. Its name, key and wallpaper stay in the file for when you add it back."))
                             .clicked();
                     }
                     problems.get(i).cloned().flatten()
@@ -3891,7 +3924,7 @@ fn ws_table(
             warn_note(ui, "A red column is applied once it is fixed; until then Astur keeps its last good version.");
         }
         ui.add_space(4.0);
-        if *count < MAX_WORKSPACES && ui.button("+ Add workspace").clicked() {
+        if *count < MAX_WORKSPACES && ui.button(tr("+ Add workspace")).clicked() {
             *count += 1;
         }
     }) {
@@ -3918,7 +3951,7 @@ fn rule_ui(ui: &mut Ui, r: &mut RuleRow) -> Option<String> {
     let wild = "* and ? are wildcards. Empty: any";
     if r.list {
         cell(ui, &mut r.rule.class, "Window class", 200.0)
-            .on_hover_text("Class only: * and ? are not read here");
+            .on_hover_text(tr("Class only: * and ? are not read here"));
         ui.label(RichText::new("older class list").small().color(sub(ui)))
             .on_hover_text(if r.rule.action == "ignore" {
                 "Kept in ignore_classes, which matches by window class alone and is checked before every rule."
@@ -3939,7 +3972,7 @@ fn rule_ui(ui: &mut Ui, r: &mut RuleRow) -> Option<String> {
     if !used
         && ui
             .selectable_label(open, "Advanced")
-            .on_hover_text("Match by the window's class or title too")
+            .on_hover_text(tr("Match by the window's class or title too"))
             .clicked()
     {
         open = !open;
@@ -3958,9 +3991,10 @@ fn rule_ui(ui: &mut Ui, r: &mut RuleRow) -> Option<String> {
     }
     ui.add_space(128.0);
     place(ui, &mut r.rule.workspace, "workspace", MAX_WORKSPACES)
-        .on_hover_text("Open its windows on this workspace");
-    place(ui, &mut r.rule.monitor, "monitor", 9)
-        .on_hover_text("Open its windows on this monitor (counted from the left)");
+        .on_hover_text(tr("Open its windows on this workspace"));
+    place(ui, &mut r.rule.monitor, "monitor", 9).on_hover_text(tr(
+        "Open its windows on this monitor (counted from the left)",
+    ));
     rule_check(r).err()
 }
 
@@ -4057,7 +4091,7 @@ fn hotkey_ui(
         }
         h.chord = format_chord(mods, key_to_vk(&key).unwrap_or(0), main);
     }
-    ui.label("\u{2192}");
+    ui.label(tr("\u{2192}"));
     let before = h.action.clone();
     let shown = action_info(&h.action).map_or(h.action.as_str(), |a| a.1);
     egui::ComboBox::from_id_salt("action")
@@ -4162,8 +4196,8 @@ fn icon_ui(ui: &mut Ui, v: &mut String, auto: bool) {
     if let Some(p) = take_pick(id) {
         *v = p;
     }
-    ui.menu_button(glyph(icons, ICON_DOWN, "Icons"), |ui| {
-        if ui.button("Choose a file\u{2026}").clicked() {
+    ui.menu_button(glyph(icons, ICON_DOWN, tr("Icons")), |ui| {
+        if ui.button(tr("Choose a file\u{2026}")).clicked() {
             start_pick(ui.ctx(), id, Pick::Icon, v);
             ui.close_menu();
         }
@@ -4206,8 +4240,8 @@ fn theme_color(
         }
         let mut auto = v.is_none();
         if ui
-            .checkbox(&mut auto, "Auto")
-            .on_hover_text("Follow the theme")
+            .checkbox(&mut auto, tr("Auto"))
+            .on_hover_text(tr("Follow the theme"))
             .changed()
         {
             *v = if auto {
@@ -4234,11 +4268,14 @@ fn more(ui: &mut Ui, f: &mut Find, salt: &str, add: impl FnOnce(&mut Ui, &mut Fi
     let asked = ui
         .data_mut(|d| d.remove_temp::<bool>(more_id(salt)))
         .is_some();
-    let r =
-        egui::CollapsingHeader::new(RichText::new("More options").size(15.0).family(semibold()))
-            .id_salt((salt, "more"))
-            .open(asked.then_some(true))
-            .show_unindented(ui, |ui| add(ui, f));
+    let r = egui::CollapsingHeader::new(
+        RichText::new(tr("More options"))
+            .size(15.0)
+            .family(semibold()),
+    )
+    .id_salt((salt, "more"))
+    .open(asked.then_some(true))
+    .show_unindented(ui, |ui| add(ui, f));
     if asked {
         r.header_response.scroll_to_me(Some(Align::Min));
     }
@@ -4285,18 +4322,18 @@ fn section(ui: &mut Ui, f: &mut Find, title: &'static str) {
 
 fn section_title(ui: &mut Ui, title: &str) {
     ui.add_space(14.0);
-    ui.label(RichText::new(title).size(15.0).family(semibold()));
+    ui.label(RichText::new(tr(title)).size(15.0).family(semibold()));
     ui.add_space(2.0);
 }
 
 fn note(ui: &mut Ui, text: &str) {
     ui.add_space(4.0);
-    ui.label(RichText::new(text).color(sub(ui)));
+    ui.label(RichText::new(tr(text)).color(sub(ui)));
 }
 
 fn warn_note(ui: &mut Ui, text: &str) {
     ui.add_space(4.0);
-    ui.colored_label(ui.visuals().warn_fg_color, text);
+    ui.colored_label(ui.visuals().warn_fg_color, tr(text));
 }
 
 // ---- widgets -----------------------------------------------------------------
@@ -4353,7 +4390,7 @@ fn reset_button(ui: &mut Ui, modified: bool) -> bool {
         font,
         color,
     );
-    resp.on_hover_text("Reset to default").clicked()
+    resp.on_hover_text(tr("Reset to default")).clicked()
 }
 
 /// Windows 11 style on/off switch (egui's demo toggle, restyled): accent fill
@@ -4417,7 +4454,7 @@ fn seg(ui: &mut Ui, v: &mut String, opts: &[(&str, &str)]) {
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             let mut each = |&(o, l): &(&str, &str)| {
-                if ui.selectable_label(v.as_str() == o, l).clicked() {
+                if ui.selectable_label(v.as_str() == o, tr(l)).clicked() {
                     *v = o.to_string();
                 }
             };
@@ -6883,7 +6920,7 @@ fn widget_panel(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config, sel: &mut
             ui.label(RichText::new(desc).color(sub(ui)));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| match src {
                 Src::Zone(..) => {
-                    if ui.button("Take off the bar").clicked() {
+                    if ui.button(tr("Take off the bar")).clicked() {
                         to = Some(None);
                     }
                 }
@@ -6893,7 +6930,7 @@ fn widget_panel(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config, sel: &mut
                             to = Some(Some((z, usize::MAX)));
                         }
                     }
-                    ui.label("Add to");
+                    ui.label(tr("Add to"));
                 }
             });
         });
@@ -7061,7 +7098,7 @@ fn tokens_ui(ui: &mut Ui, v: &mut String, tokens: &[&str]) {
     for t in tokens {
         if ui
             .small_button(*t)
-            .on_hover_text("Add it to the format")
+            .on_hover_text(tr("Add it to the format"))
             .clicked()
         {
             v.push_str(t);
@@ -7145,9 +7182,9 @@ fn widget_rows(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config, w: &str) {
         let modified = icon != di || fmt != dfmt;
         if row_core(ui, f, meta, modified, true, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.label("Label");
+                ui.label(tr("Label"));
                 cell(ui, icon, "", 70.0);
-                ui.label("Format");
+                ui.label(tr("Format"));
                 cell(ui, fmt, "", 150.0);
                 tokens_ui(ui, fmt, tokens);
                 sample_label(ui, stat_sample(&mode, icon, fmt, w, &draw));
@@ -7321,7 +7358,7 @@ fn format_pick(
                             }
                         }
                         ui.separator();
-                        if ui.selectable_label(false, "Custom\u{2026}").clicked() {
+                        if ui.selectable_label(false, tr("Custom\u{2026}")).clicked() {
                             ui.data_mut(|m| m.insert_temp(id, true));
                         }
                     });
@@ -7693,7 +7730,7 @@ fn app_menu(ui: &mut Ui, id: egui::Id, v: &mut String) -> bool {
         .show_ui(ui, |ui| {
             for o in &found {
                 if ui
-                    .selectable_label(same_app(&o.command, v), &o.label)
+                    .selectable_label(same_app(&o.command, v), tr(&o.label))
                     .clicked()
                 {
                     v.clone_from(&o.command);
@@ -7705,7 +7742,7 @@ fn app_menu(ui: &mut Ui, id: egui::Id, v: &mut String) -> bool {
                 start_pick(ui.ctx(), id, Pick::App, v);
             }
             if ui
-                .selectable_label(false, "Type a command\u{2026}")
+                .selectable_label(false, tr("Type a command\u{2026}"))
                 .clicked()
             {
                 ui.data_mut(|m| m.insert_temp(typed_id, true));
@@ -7965,10 +8002,10 @@ fn presets_ui(ui: &mut Ui, c: &Config) -> Option<&'static BarPreset> {
                     short_list(diff)
                 )
             };
-            ui.label(text).on_hover_text("The preset closest to your bar, and the keys that differ from it. Applying a preset first copies navbar.conf to navbar.conf.bak (once per session), and Undo takes it back.");
+            ui.label(text).on_hover_text(tr("The preset closest to your bar, and the keys that differ from it. Applying a preset first copies navbar.conf to navbar.conf.bak (once per session), and Undo takes it back."));
             if !diff.is_empty() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button("Reset to preset").clicked() {
+                    if ui.button(tr("Reset to preset")).clicked() {
                         apply = Some(*near);
                     }
                 });
@@ -7996,7 +8033,7 @@ fn presets_ui(ui: &mut Ui, c: &Config) -> Option<&'static BarPreset> {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if diff.is_empty() {
                         ui.label(RichText::new("In use").color(sub(ui)));
-                    } else if ui.button("Apply").clicked() {
+                    } else if ui.button(tr("Apply")).clicked() {
                         apply = Some(*p);
                     }
                 });
@@ -8531,7 +8568,7 @@ fn font_row(ui: &mut Ui, f: &mut Find, meta: Meta, v: &mut String, d: &str) {
             if typed || missing {
                 ui.add(
                     egui::TextEdit::singleline(v)
-                        .hint_text("Font name")
+                        .hint_text(tr("Font name"))
                         .desired_width(200.0)
                         .margin(FIELD_MARGIN),
                 );
@@ -8557,7 +8594,7 @@ fn font_menu(ui: &mut Ui, id: egui::Id, v: &mut String, fonts: Option<&Vec<Strin
     let mut filter = ui.data(|m| m.get_temp::<String>(fid)).unwrap_or_default();
     ui.add(
         egui::TextEdit::singleline(&mut filter)
-            .hint_text("Search fonts")
+            .hint_text(tr("Search fonts"))
             .desired_width(f32::INFINITY),
     );
     let q = filter.trim().to_lowercase();
@@ -8585,8 +8622,8 @@ fn font_menu(ui: &mut Ui, id: egui::Id, v: &mut String, fonts: Option<&Vec<Strin
         });
     ui.separator();
     if ui
-        .selectable_label(false, "Custom\u{2026}")
-        .on_hover_text("Type a font name")
+        .selectable_label(false, tr("Custom\u{2026}"))
+        .on_hover_text(tr("Type a font name"))
         .clicked()
     {
         ui.data_mut(|m| m.insert_temp(id.with("custom"), true));
@@ -8624,7 +8661,8 @@ fn font_preview(ui: &mut Ui, id: egui::Id, name: &str) {
     };
     if let Some(t) = tex {
         let image = egui::Image::new((t.id(), t.size_vec2() / ppp)).tint(ui.visuals().text_color());
-        ui.add(image).on_hover_text("How Windows draws this font");
+        ui.add(image)
+            .on_hover_text(tr("How Windows draws this font"));
     }
 }
 
@@ -9006,7 +9044,7 @@ fn browse_button(ui: &mut Ui, id: egui::Id, v: &mut String, kind: Pick) -> bool 
     }
     let icons = has_icons(ui);
     if ui
-        .button(glyph(icons, ICON_FOLDER, "Browse\u{2026}"))
+        .button(glyph(icons, ICON_FOLDER, tr("Browse\u{2026}")))
         .on_hover_text(kind.choose())
         .clicked()
     {

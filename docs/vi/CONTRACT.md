@@ -9,7 +9,7 @@ C03 Locale en or vi, persisted across Settings restart. Invalid/missing key reso
 C04 EN/VI key and interpolation argument sets are identical. All owned strings are categorized as translated or documented externally owned.
 C05 Every Vietnamese glyph renders without blank squares or clipping in Settings, tray, status, launcher, dialogs, warning and help, checked light/dark and 100/125/150/200% DPI.
 C06 Existing astur.conf/navbar.conf settings (layout, shortcut, float/ignore rules, status bar, backups) remain byte/semantically unchanged by a locale-only operation, barring explicit dedicated locale field.
-C07 A genuine Telegram/Zalo main window remains tiled by default. A transient toast never steals a grid slot, never becomes a 'tabbed column' application, never hijacks focus and retains normal notification behavior.
+C07 A genuine Telegram/Zalo main window remains tiled by default. A transient toast is still displayed by the originating app/Windows, with its native position, animation, click action, timeout and dismissal intact, but never steals a grid slot, becomes a 'tabbed column' application, changes tile sizes or hijacks focus. Astur must neither hide nor close the popup.
 C08 Standard Windows notifications, Snipping Tool overlay/snips and toast bursts remain usable. If two transients are of different ownership/class, verify independently; no blanket suppression by exe.
 C09 On popup exit/dismiss, no ghost tile/tab, empty workspace gap, orphaned window or stuck input hook.
 C10 OS/untranslated dynamic content (window titles, user messages) is preserved exactly; UI-only labels translated.

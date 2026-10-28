@@ -1,47 +1,44 @@
-# Astur VI — Durable Handoff
+# Astur VI — Durable Handoff / Recovery Checkpoint
 
-Updated: 2026-10-28 11:19 ICT (approximate session time). Lifecycle: PLAN_CHECKPOINT / IMPLEMENTATION_PENDING.
+Date: 2026-10-28. Lifecycle: **PREVIEW_RELEASED** (installer and portable artifacts published; **NOT STABLE**, runtime popup E2E remains unverified).
 
-## Repository/identity
-- Owned fork: https://github.com/tuanvayt03-cpu/Astur (verified admin/push).
-- Original: https://github.com/Page011/Astur; upstream default main baseline b60500f0155c1d817936b869989718299cbd3f14, tagged source version 2.4.0 in Cargo.
-- Branch: docs/vi-localization-plan, tracking origin/docs/vi-localization-plan; base fork main remains at upstream commit. PR: https://github.com/tuanvayt03-cpu/Astur/pull/1 (open; plan only).
-- CodeLocal authorized workspace: D:\Project; local clone: D:\Project\Astur. Do not modify other repos or current Astur installation.
+## Source identity
+- Upstream: `Page011/Astur@b60500f` (v2.4.0).
+- User-owned fork: https://github.com/tuanvayt03-cpu/Astur
+- Local checkout: `D:\Project\Astur`; branch `feat/vi-notifications`; remote `origin/feat/vi-notifications`.
+- Release source commit: **`af9b52b56a308fc090b1cea38bf76599fd9bf4d3`**.
+- Released tag: `astur-vi-preview-2.4.0.1` (pre-release, never matches the official `v*` stable workflow).
+- Draft feature PR #2 remains unmerged: https://github.com/tuanvayt03-cpu/Astur/pull/2
+- Primary integrator owned all writes. Original Astur installation, window process, configuration and other local repositories were not modified.
 
-## Scope and artifacts
-1. .omx/plans/2026-10-28-astur-vietnamese-and-notification-fix.md — execution DAG, acceptance criteria, dispatch responsibilities.
-2. docs/vi/SDD.md — Vietnamese i18n proposal, popup diagnosis-first architecture.
-3. docs/vi/CONTRACT.md — invariants, exact test matrix.
-4. This handoff checkpoint.
-These are documentation-only; **no i18n implementation nor notification popup fix yet**.
+## Verified assets
+Release: https://github.com/tuanvayt03-cpu/Astur/releases/tag/astur-vi-preview-2.4.0.1
 
-## Fresh evidence from this session
-- Fork created by gh repo fork Page011/Astur --clone=false, exit 0; GitHub get_repo confirmed fork owner/admin rights.
-- Local clone via git clone completed exit 0; git fetch planning branch exit 0, git switch --track completed exit 0.
-- At the docs-only checkpoint, git status --short --branch was clean on docs/vi-localization-plan; git diff --check origin/main...HEAD returned 0.
-- GitHub fetched docs/vi/CONTRACT.md from planning branch and verified contents.
-- GitHub Actions workflow results were not present for planning branch at last check; `gh pr checks 1 --repo tuanvayt03-cpu/Astur` returned 'no checks reported'. Do not claim CI pass.
-- `cargo --version` failed in CodeLocal shell ('cargo' not recognized). Rust toolchain availability elsewhere not yet ruled out.
-- OS window list was available, but no target toast shown/captured; root cause of grouping remains unconfirmed.
-- Fork's Issues API returned HTTP 410 (Issues disabled). Track notification regression inside plan/PR rather than creating phantom issue.
+1. `Astur-VI-Preview-Setup-2.4.0-preview.1.exe`, 4,426,196 bytes, SHA-256 `793b166ebae3baf1e4e1650fd41a4487f2e8e3fb0150e14a78d3d434c67bc99a`.
+2. `Astur-VI-Preview-Portable-2.4.0-preview.1.zip`, 3,358,773 bytes, SHA-256 `3f72ce1a620e70857e8ffea7891d1b920a9f7063df7af791bef08144a6b171dc`.
+3. `SHA256SUMS.txt`, uploaded as a release asset.
 
-## Code inspection evidence
-crates/astur/src/main.rs:4994-5035 BLOCK_CLASSES; 5042-5150 app_surface_reject, app_window_reject, manage_reject; style and owner exclusions already exist. Broader app-class exclusions previously broke main app management per source comment. No code edits to these paths until real transient HWND identity/geometry/lifetime is observed.
+Verified with GitHub Release API: `isPrerelease=true`, all three assets `state=uploaded`; target commit `af9b52b56a308fc090b1cea38bf76599fd9bf4d3`.
 
-## Next actions — exact order
-A. Set up/verify Rust toolchain or CI; baseline fmt/clippy/test/build on Windows; capture exact source SHA and failed checks.
-B. Reproduce Telegram + Zalo + Windows/Snipping Tool notifications and screenshots without changing their current settings. Capture sanitized HWND metadata, no message content, owner/class/style/rect/event trace and compare app main HWND.
-C. Add regression fixtures; implement narrow exception at correct adoption gate. Re-run tests, manual stress and genuine main-window tiling.
-D. Inventory and implement en/vi catalogs, native font/geometry tests, locale preference and UI switch according to SDD.
-E. Verify full matrix, release separate installer with legal notices and rollback. Only mark COMPLETE after fresh evidence.
-Do not run an experimental window manager over current desktop or uninstall/change existing Astur without a safe recovery plan.
+## Build and package fresh machine evidence
+GitHub Actions release job **SUCCESS**: https://github.com/tuanvayt03-cpu/Astur/actions/runs/40667462157
 
-## Pending
-- Notification bug: UNVERIFIED root cause; UNFIXED.
-- i18n: PLANNED only.
-- CI: NOT RUN / no checks reported; local compiler PATH missing.
-- Release binaries: NOT BUILT.
-- Last verified before this checkpoint: clean local planning branch at commit 78c281af39c2c0ea131ebd1707704fef4f54aa2c. This file commit becomes the new remote head; refresh SHA and local branch after writing.
+All completed successfully: Windows checkout, Rust stable, `cargo fmt --all --check`, preview installation safety test, localization catalog test, diagnostics syntax check, `cargo clippy --workspace --all-targets -- -D warnings`, workspace unit tests, `cargo build --release --workspace`, both executable/legal-file assertions, Inno Setup installation, preview installer generation, portable ZIP + checksum, isolated Windows runner **silent install/uninstall smoke**, ZIP extraction and file validation, and pre-release publication.
 
-## Recovery
-Open the PR and documents, re-check GitHub branch HEAD and CodeLocal git status/diff before any edits. One primary writer. No secret, no unscoped repo edits, no force-push.
+Local `python scripts/test_preview_packaging.py` and `python scripts/test_i18n_inventory.py` also EXIT 0. Local Cargo PATH remains unavailable; GitHub Windows CI is build evidence. No full GUI or native Zalo/Telegram real popup E2E evidence.
+
+## Preview safety boundary
+- Installer GUID is distinct from upstream, directory is `%LOCALAPPDATA%\Programs\Astur VI Preview`, independent Start Menu shortcuts and uninstall.
+- No automatic launch, autostart, closure of other processes, or replacement of the installed original. Actual Preview has not been launched on the user's desktop.
+- **Critical runtime limitation:** Both installations currently share `%USERPROFILE%\.astur` configuration and rescue data, plus global window hooks. Users must EXIT original Astur and BACK UP `%USERPROFILE%\.astur` before running the Preview; never run the two simultaneously.
+- Unsigned installer may prompt SmartScreen; user must evaluate provenance/checksum rather than disable protection.
+- Includes 367 EN/VI translations and notification classifier that excludes compact notification-like HWNDs from tiling/tabs while letting them pop normally. **Partial localization and class-specific popup behavior still unverified**.
+
+## Remaining work for Stable
+P0: Reproduce real Zalo/Telegram/Windows toast and Snipping Tool overlay; capture sanitized HWND metadata and verify toast appearance, dismissal, unchanged 2/4/6 tile geometry, app main-window tiling.
+P1: Finish complete first-party localization incl. native launcher, tray, status bar, popups and installer, visual QA for light/dark and DPI.
+P1: Better runtime config isolation for side-by-side execution if required; until then no concurrent launch.
+P2: Separate user-acceptance test and appropriately signed stable release if applicable. Do not merge draft PR or announce Stable prematurely.
+
+## Recovery protocol
+After this handoff edit, refresh final HEAD, branch, local dirty state, remote and CI. This documentation commit may be ahead of the released artifact's immutable source commit. Do not force-push or rewrite tag/release. Preserve existing binaries and original user configuration.

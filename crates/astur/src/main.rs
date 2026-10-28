@@ -136,7 +136,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SW_RESTORE, SW_SHOWNA, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
     WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
     WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WNDCLASSW,
-    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_EX_TRANSPARENT, WS_POPUP,
 };
 
 // --- tiling additions -----------------------------------------------------
@@ -188,7 +189,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOWPLACEMENT, WINDOW_EX_STYLE, WINEVENT_OUTOFCONTEXT,
     WINEVENT_SKIPOWNPROCESS, WM_CLIPBOARDUPDATE, WM_CLOSE, WM_DISPLAYCHANGE, WM_DPICHANGED,
     WM_ENDSESSION, WM_ERASEBKGND, WM_PAINT, WM_SETTINGCHANGE, WM_TIMER, WM_USER, WS_CAPTION,
-    WS_CHILD,
+    WS_CHILD, WS_THICKFRAME,
 };
 
 // =========================================================================
@@ -5047,6 +5048,60 @@ fn show_rejected_by_style(style: u32, exstyle: u32) -> bool {
     style & WS_CHILD.0 != 0 || exstyle & (WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0) != 0
 }
 
+/// A compact, borderless, always-on-top pop-up is an overlay, not a new
+/// workspace member. This does not hide, move, dismiss or suppress it: Windows
+/// and the originating app continue to draw it normally over existing tiles.
+///
+/// Deliberately require several independent Win32 traits. WS_POPUP alone also
+/// describes legitimate dialogs, and TOPMOST alone describes real applications.
+/// Keep large fullscreen/borderless applications eligible for management.
+fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT) -> bool {
+    if style & WS_POPUP.0 == 0
+        || style & (WS_CAPTION.0 | WS_THICKFRAME.0) != 0
+        || exstyle & WS_EX_TOPMOST.0 == 0
+        || exstyle & WS_EX_APPWINDOW.0 != 0
+    {
+        return false;
+    }
+    let width = i64::from(rect.right) - i64::from(rect.left);
+    let height = i64::from(rect.bottom) - i64::from(rect.top);
+    let screen_width = i64::from(monitor.right) - i64::from(monitor.left);
+    let screen_height = i64::from(monitor.bottom) - i64::from(monitor.top);
+    width > 0
+        && height > 0
+        && screen_width > 0
+        && screen_height > 0
+        && width * 2 <= screen_width
+        && height * 5 <= screen_height * 2
+}
+
+/// Only an adoption guard. Do not use for fullscreen bookkeeping or change
+/// ShowWindow/SetWindowPos: a toast must remain a native popup, untouched.
+unsafe fn is_transient_overlay(hwnd: HWND) -> bool {
+    let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+    let exstyle = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    if style & WS_POPUP.0 == 0
+        || style & (WS_CAPTION.0 | WS_THICKFRAME.0) != 0
+        || exstyle & WS_EX_TOPMOST.0 == 0
+        || exstyle & WS_EX_APPWINDOW.0 != 0
+    {
+        return false;
+    }
+    let mut rect = RECT::default();
+    if GetWindowRect(hwnd, &mut rect).is_err() {
+        return false;
+    }
+    let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    let mut info = MONITORINFO {
+        cbSize: core::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if !GetMonitorInfoW(hmon, &mut info).as_bool() {
+        return false;
+    }
+    transient_overlay_shape(style, exstyle, &rect, &info.rcMonitor)
+}
+
 /// Is this a visible top-level app surface (including owned presentation/game
 /// popups with no title)? Used by fullscreen detection, not tiling adoption.
 unsafe fn is_app_surface(hwnd: HWND) -> bool {
@@ -5111,6 +5166,12 @@ unsafe fn app_window_reject(hwnd: HWND) -> Option<&'static str> {
         if !owner.0.is_null() {
             return Some("owned");
         }
+    }
+    // Notification/toast-like overlays stay visible above the tiled grid,
+    // but never enter ws.windows/ws.floating, tab bars or focus bookkeeping.
+    // This is not a blacklist of Telegram, Zalo or any other application.
+    if is_transient_overlay(hwnd) {
+        return Some("transient-overlay");
     }
     (GetWindowTextLengthW(hwnd) <= 0).then_some("untitled")
 }
@@ -24694,6 +24755,79 @@ mod tests {
         assert!(!show_rejected_by_style(
             0,
             WS_EX_TOPMOST.0 | WS_EX_TRANSPARENT.0
+        ));
+    }
+
+    #[test]
+    fn compact_native_toast_is_overlay_not_tile_but_main_app_remains_tileable() {
+        let screen = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let toast = RECT {
+            left: 1480,
+            top: 850,
+            right: 1900,
+            bottom: 1010,
+        };
+        let small_topmost_popup = WS_POPUP.0;
+        let topmost = WS_EX_TOPMOST.0;
+        assert!(transient_overlay_shape(
+            small_topmost_popup,
+            topmost,
+            &toast,
+            &screen
+        ));
+
+        // Main Telegram / Zalo windows are ordinary overlapped windows.
+        let normal_main = 0x00CF_0000; // WS_OVERLAPPEDWINDOW
+        assert!(!transient_overlay_shape(normal_main, 0, &toast, &screen));
+        // Do not steal legitimate dialogs, windowed apps or user-facing
+        // topmost applications merely because they are small or topmost.
+        assert!(!transient_overlay_shape(
+            small_topmost_popup,
+            0,
+            &toast,
+            &screen
+        ));
+        assert!(!transient_overlay_shape(
+            small_topmost_popup | WS_CAPTION.0,
+            topmost,
+            &toast,
+            &screen
+        ));
+        assert!(!transient_overlay_shape(
+            small_topmost_popup | WS_THICKFRAME.0,
+            topmost,
+            &toast,
+            &screen
+        ));
+        assert!(!transient_overlay_shape(
+            small_topmost_popup,
+            topmost | WS_EX_APPWINDOW.0,
+            &toast,
+            &screen
+        ));
+        // Borderless always-on-top fullscreen apps are NOT transient toasts.
+        assert!(!transient_overlay_shape(
+            small_topmost_popup,
+            topmost,
+            &screen,
+            &screen
+        ));
+        let tiny_monitor = RECT {
+            left: 0,
+            top: 0,
+            right: 400,
+            bottom: 300,
+        };
+        assert!(!transient_overlay_shape(
+            small_topmost_popup,
+            topmost,
+            &toast,
+            &tiny_monitor
         ));
     }
 
