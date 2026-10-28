@@ -1,11 +1,11 @@
 # Astur VI — Fresh Handoff / Recovery Checkpoint
 
-Date: 2026-10-28. State: **PARTIAL — CODE QA IN PROGRESS; NOT RELEASE READY**.
+Date: 2026-10-28. State: **PARTIAL — CODE AND WINDOWS CI PASS; APP-SPECIFIC POPUP E2E AND INSTALLER NOT VERIFIED**.
 
 ## Baseline
 - Upstream `Page011/Astur@b60500f` v2.4.0; owned fork https://github.com/tuanvayt03-cpu/Astur.
 - Active branch `feat/vi-notifications` at `D:\Project\Astur`, tracking `origin/feat/vi-notifications`. Parent planning branch `docs/vi-localization-plan`, PR #1.
-- Draft feature PR: https://github.com/tuanvayt03-cpu/Astur/pull/2. Last compiled Rust source commit `4efaf42`. Current working tree may have audit, diagnostic and workflow edits not yet committed; resolve Git status and final SHA before resuming.
+- Draft feature PR: https://github.com/tuanvayt03-cpu/Astur/pull/2. Overlay-source checkpoint `1091d22` pushed; follow-up Windows CI run https://github.com/tuanvayt03-cpu/Astur/actions/runs/40659722010. Resolve Git status and final SHA after any documentation update.
 - Installed Astur on Windows user desktop was not touched. One primary writer; other repositories outside scope are untouched.
 
 ## Delivered code
@@ -18,14 +18,14 @@ Date: 2026-10-28. State: **PARTIAL — CODE QA IN PROGRESS; NOT RELEASE READY**.
 - `python scripts/test_i18n_inventory.py`: exit 0; 367 translations, 75 literal metadata tuples, 0 missing in covered groups, no duplicate/placeholder defect.
 - `python -m py_compile` for diagnostic script and localization test: exit 0.
 - CI run https://github.com/tuanvayt03-cpu/Astur/actions/runs/40645288503 for Rust commit `4efaf42`: **Format PASS, Clippy PASS, Test PASS, Release build PASS** (overall success). Audit/QA checkpoint `5db2584` also passed full Windows CI, including translation and probe steps: https://github.com/tuanvayt03-cpu/Astur/actions/runs/40646010315. CI/release workflow action versions were then updated to Node24 majors, requiring a fresh CI result.
-- CodeLocal `where cargo` still fails though Rustup and Rust GNU MSI installed with winget. Use successful GitHub Actions Windows CI, not unavailable local Cargo.
-- Notification live capture unavailable; no evidence allowing a safe popup filter change. Window list observation contained no offending transient. **Notification bug remains uncorrected and unverified**.
+- Windows CI for overlay source commit `1091d22`: **PASS Format, catalog checks, probe syntax, Clippy, workspace Test and Release build**: https://github.com/tuanvayt03-cpu/Astur/actions/runs/40659722010. CodeLocal `where cargo` still fails; CI is the authoritative compiler evidence.
+- Added non-suppressing overlay-adoption guard: compact captionless topmost WS_POPUP windows without WS_EX_APPWINDOW stay visible and OS-managed while excluded from Astur tiling/tabs. Normal main application windows, captioned popups and fullscreen windows stay eligible. New synthetic geometry/style regression tests were added. Actual Zalo/Telegram HWND popups were not available to capture; **app-specific runtime behavior remains UNVERIFIED**.
 
 ## Critical open work
-P0: Collect HWND/style/class/owner comparison for offending popup and normal Telegram/Zalo windows; add failing regression and narrow filter; test OS native toasts, screenshots, multi-monitor.
+P0: Capture an actual offending Zalo/Telegram/Windows toast HWND (style/class/owner/size) and normal main windows; verify the new narrow overlay classifier catches it and its appearance/dismissal remain normal. Expand test cases only from evidence. Run OS screenshot and 2/4/6 tiled-window geometry E2E without touching installed production Astur.
 P1: Complete native/secondary locale coverage, Windows visual snapshot and layout QA.
 P1: Build isolated installer, preserve Apache-2.0 notices, run install/update/rollback smoke without interfering with original running Astur.
-P1: Verify final CI check suite on final Rust HEAD, update PR #2 review state, keep main unchanged until all contracts PASS.
+P1: Keep draft PR #2 unmerged; update final CI status after the handoff docs checkpoint, and do not mark C07–C09 as E2E PASS without real notification samples and unchanged grid geometry.
 
 ## Next session recovery
 Check `git status --short --branch`, `git rev-parse HEAD`, remote HEAD, PR #2 and latest GitHub run, read `docs/vi/SDD.md`, `CONTRACT.md` and `AUDIT_2026-10-28.md`. Run QA, fix failures without weakening tests, checkpoint commit and push without force. No release until notification and runtime E2E pass.
