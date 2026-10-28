@@ -1,0 +1,16 @@
+# Astur VI — OMX Critical Audit / Update V2
+
+Branch: `feat/vi-full-update-popup-v2` (separate from earlier `feat/vi-notifications`).
+Date: 2026-10-28. One primary writer, in-place upgrade held behind Windows CI.
+
+## Audit matrix (finding / evidence / action)
+- **A01 — Notification becomes a tile (CONFIRMED by user screenshot).** `app_window_reject` was only filtering topmost `WS_POPUP` windows. Non-topmost, compact layered/borderless messenger popups can pass the old filter and be adopted. V2 broadens the **adoption-only** predicate with compact-geometry and style tests; never hides or suppresses a notification. Risk: custom borderless legitimate apps; protect captioned/resizable/fullscreen/explicit `WS_EX_APPWINDOW` applications. Evidence: screenshot and synthetic Win32 unit test. Exact notification HWND class/style from Zalo remains **UNVERIFIED**; do not mark live E2E passed.
+- **A02 — Half-English Settings (CONFIRMED by user screenshot and source scan).** Previous 367-key catalog lived only in `astur-settings`. Move catalog to shared `astur-config::i18n` so both binaries reuse messages and native tray/system items can translate. Translate additional row metadata/choices, YASB help, shortcuts, preset labels, advanced rule hints and status text; keep machine names, raw config, process classes and user content untouched. Default Vietnamese if no explicit locale preference exists; English remains selectable. Inventory must fail on missing and duplicate keys or lost format placeholders.
+- **A03 — Preview is not an in-place upgrade (CONFIRMED).** Preview used distinct Inno `AppId`, install location and uninstall key. New `astur-vi-update.iss` uses the **same AppId and default install path** as `astur.iss`, enables `UsePreviousAppDir` and `UsePreviousTasks`, backs up existing user config and both installed binaries BEFORE file replacement, and preserves optional post-install launch behavior. Smoke-test over the upstream-identity installer on a disposable Windows runner, including custom path and original backup checks. **Never install into the user's PC during automated QA.**
+- **A04 — Risk of concurrent Preview/original instances (CONFIRMED).** Both variants share `%USERPROFILE%\.astur` and global hooks. Upgrade release notice must instruct closing Preview first. No automated dual-running or destructive process termination.
+- **A05 — Native UI and per-app popup E2E (UNVERIFIED).** Rust CI and static translation tests do not prove actual GUI behavior at multiple DPI or popup classes. Do not claim full translation coverage or stable release without screenshots/real HWND samples.
+
+## Release gate
+G1 Python catalog and upgrade contract clean; G2 fresh Windows cargo format/clippy/test/release; G3 Inno Setup compiles upgrade; G4 disposable runner seed install -> update at same custom path -> preserve config and marker -> backup old exe/settings/config -> uninstall; G5 release only as `Pre-release` with SHA-256 and rollback instructions; G6 later native desktop screenshot and real messenger popup E2E before stable.
+
+No source/tag history rewrite, no forced push, and no modification of the original user's active Astur until they explicitly run the setup.

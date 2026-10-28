@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 root=Path(__file__).resolve().parents[1]
 s=(root/'crates/astur-settings/src/main.rs').read_text('utf-8')
-loc=(root/'crates/astur-settings/src/i18n.rs').read_text('utf-8')
+loc=(root/'crates/astur-config/src/i18n.rs').read_text('utf-8')
 translated=set(re.findall(r'(?m)^\s*"([^"]+)"\s*=>\s*"',loc))
 pattern=re.compile(r'\(\s*"([^"\n]+)"\s*,\s*"([^"\n]*)"\s*,\s*"([a-z][a-z0-9_, ]+)"\s*\)')
 meta={(m.group(1),m.group(2),m.group(3)) for m in pattern.finditer(s) if ('_' in m.group(3) or m.group(3).startswith('key'))}

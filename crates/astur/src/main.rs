@@ -29,6 +29,7 @@ mod yasb;
 // Config now lives in the shared `astur-config` crate (the settings GUI parses the
 // same model). Aliased to `config` so the rest of this file is unchanged.
 use astur_config as config;
+use config::i18n::{self, tr};
 use config::{config_path, load_config, Config, HotkeyDef, WindowRule};
 use layout::{
     clamp_offset, classify, col_width, columns_layout, dwindle_layout, grid_layout, master_stack,
@@ -137,7 +138,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
     WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WNDCLASSW,
     WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_EX_TRANSPARENT, WS_POPUP,
+    WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
 };
 
 // --- tiling additions -----------------------------------------------------
@@ -5048,17 +5049,19 @@ fn show_rejected_by_style(style: u32, exstyle: u32) -> bool {
     style & WS_CHILD.0 != 0 || exstyle & (WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0) != 0
 }
 
-/// A compact, borderless, always-on-top pop-up is an overlay, not a new
-/// workspace member. This does not hide, move, dismiss or suppress it: Windows
-/// and the originating app continue to draw it normally over existing tiles.
-///
-/// Deliberately require several independent Win32 traits. WS_POPUP alone also
-/// describes legitimate dialogs, and TOPMOST alone describes real applications.
-/// Keep large fullscreen/borderless applications eligible for management.
+/// A compact notification overlay belongs to Windows or its originating app,
+/// not Astur's tile/tab registry. Classify by window chrome, presentation style
+/// and desktop-relative geometry, never by app/process/title language. In
+/// particular: some Electron/Chromium notifications are NOT WS_EX_TOPMOST.
 fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT) -> bool {
-    if style & WS_POPUP.0 == 0
-        || style & (WS_CAPTION.0 | WS_THICKFRAME.0) != 0
-        || exstyle & WS_EX_TOPMOST.0 == 0
+    if style
+        & (WS_CAPTION.0
+            | WS_THICKFRAME.0
+            | WS_SYSMENU.0
+            | WS_MINIMIZEBOX.0
+            | WS_MAXIMIZEBOX.0
+            | WS_CHILD.0)
+        != 0
         || exstyle & WS_EX_APPWINDOW.0 != 0
     {
         return false;
@@ -5067,26 +5070,37 @@ fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
     let height = i64::from(rect.bottom) - i64::from(rect.top);
     let screen_width = i64::from(monitor.right) - i64::from(monitor.left);
     let screen_height = i64::from(monitor.bottom) - i64::from(monitor.top);
-    width > 0
-        && height > 0
-        && screen_width > 0
-        && screen_height > 0
-        && width * 2 <= screen_width
-        && height * 5 <= screen_height * 2
-}
-
-/// Only an adoption guard. Do not use for fullscreen bookkeeping or change
-/// ShowWindow/SetWindowPos: a toast must remain a native popup, untouched.
-unsafe fn is_transient_overlay(hwnd: HWND) -> bool {
-    let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-    let exstyle = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-    if style & WS_POPUP.0 == 0
-        || style & (WS_CAPTION.0 | WS_THICKFRAME.0) != 0
-        || exstyle & WS_EX_TOPMOST.0 == 0
-        || exstyle & WS_EX_APPWINDOW.0 != 0
+    if width <= 0
+        || height <= 0
+        || screen_width <= 0
+        || screen_height <= 0
+        || width * 2 > screen_width
+        || height * 5 > screen_height * 2
     {
         return false;
     }
+    // Native toasts frequently appear at a corner of the monitor. Accept a
+    // small margin for virtual desktop DPI and Windows shadow decorations.
+    let at_horizontal_edge =
+        rect.left <= monitor.left + 96 || rect.right >= monitor.right - 96;
+    let at_vertical_edge = rect.top <= monitor.top + 96 || rect.bottom >= monitor.bottom - 96;
+    let anchored = at_horizontal_edge && at_vertical_edge;
+    let popup = style & WS_POPUP.0 != 0;
+    let topmost = exstyle & WS_EX_TOPMOST.0 != 0;
+    let layered = exstyle & WS_EX_LAYERED.0 != 0;
+    // Popups should still surface normally: this only skips Astur adoption.
+    // Layered, captionless notification surfaces can be topmost even without
+    // WS_POPUP. Compact layered overlays may also appear away from screen
+    // corners (e.g. messenger banners near a toolbar).
+    (popup && (topmost || anchored))
+        || (layered && (topmost || anchored || (width * 3 <= screen_width && height * 4 <= screen_height)))
+}
+
+/// Never ShowWindow/SetWindowPos here: notification display, click, animation
+/// and dismissal remain entirely owned by Windows or the originating app.
+unsafe fn is_transient_overlay(hwnd: HWND) -> bool {
+    let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+    let exstyle = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
     let mut rect = RECT::default();
     if GetWindowRect(hwnd, &mut rect).is_err() {
         return false;
@@ -22821,7 +22835,7 @@ struct SysItem {
 
 fn sys_action(label: &str, icon: &str, act: SysAct, confirm: bool) -> SysItem {
     SysItem {
-        label: label.to_string(),
+        label: tr(label).to_string(),
         icon: icon.to_string(),
         kind: SysKind::Action(act, confirm),
     }
@@ -22868,7 +22882,7 @@ fn builtin_sys_item(id: &str, wallpaper_dir: &str) -> Option<SysItem> {
         "wallpapers" | "wallpaper" => {
             let items = wallpaper_items(wallpaper_dir);
             (!items.is_empty()).then(|| SysItem {
-                label: "Wallpaper".to_string(),
+                label: tr("Wallpaper").to_string(),
                 icon: "wallpaper".to_string(),
                 kind: SysKind::Category(items),
             })
@@ -22953,14 +22967,14 @@ fn build_system_root() -> Vec<SysItem> {
     let mut root = Vec::new();
     if !power.is_empty() {
         root.push(SysItem {
-            label: "Power".to_string(),
+            label: tr("Power").to_string(),
             icon: "power-circle".to_string(),
             kind: SysKind::Category(power),
         });
     }
     if !setup.is_empty() {
         root.push(SysItem {
-            label: "Setup".to_string(),
+            label: tr("Setup").to_string(),
             icon: "setup".to_string(),
             kind: SysKind::Category(setup),
         });
@@ -23177,7 +23191,8 @@ unsafe fn sysmenu_show(h: HWND) {
                 false,
             ));
         }
-        st.title = "System".to_string();
+        i18n::load(&config_path("ASTUR_CONF", "astur.conf").with_file_name("ui-language.txt"));
+        st.title = tr("System").to_string();
         st.sel = 0;
         st.confirm = false;
         st.stack.clear();
@@ -23708,8 +23723,8 @@ unsafe extern "system" fn tray_wndproc(h: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             tray_open_settings_async();
         } else if event == WM_RBUTTONUP {
             if let Ok(menu) = CreatePopupMenu() {
-                let s1: Vec<u16> = "Settings\0".encode_utf16().collect();
-                let s2: Vec<u16> = "Quit\0".encode_utf16().collect();
+                let s1: Vec<u16> = format!("{}\0", tr("Settings")).encode_utf16().collect();
+                let s2: Vec<u16> = format!("{}\0", tr("Quit")).encode_utf16().collect();
                 let _ = AppendMenuW(menu, MF_STRING, TRAY_SETTINGS, PCWSTR(s1.as_ptr()));
                 let _ = AppendMenuW(menu, MF_STRING, TRAY_QUIT, PCWSTR(s2.as_ptr()));
                 let mut pt = POINT::default();
@@ -24319,6 +24334,9 @@ fn main() {
             std::process::exit(0);
         }
 
+        // Load the display language independently of the tiling/window rules.
+        i18n::load(&config_path("ASTUR_CONF", "astur.conf").with_file_name("ui-language.txt"));
+
         // 1ms timer resolution so the animation worker's frame sleeps are precise
         // (the default ~15.6ms granularity is the main cause of choppy motion).
         let _ = windows::Win32::Media::timeBeginPeriod(1);
@@ -24786,10 +24804,27 @@ mod tests {
         assert!(!transient_overlay_shape(normal_main, 0, &toast, &screen));
         // Do not steal legitimate dialogs, windowed apps or user-facing
         // topmost applications merely because they are small or topmost.
-        assert!(!transient_overlay_shape(
+        // Borderless corner notifications may have no WS_EX_TOPMOST bit.
+        assert!(transient_overlay_shape(
             small_topmost_popup,
             0,
             &toast,
+            &screen
+        ));
+        // Conversely, a small unlayered popup floating in the middle of the
+        // desktop is not enough evidence to take it out of window management.
+        let interior = RECT {
+            left: 600,
+            top: 400,
+            right: 900,
+            bottom: 580,
+        };
+        assert!(!transient_overlay_shape(small_topmost_popup, 0, &interior, &screen));
+        // Layered and compact messenger popups are not always topmost.
+        assert!(transient_overlay_shape(
+            small_topmost_popup,
+            WS_EX_LAYERED.0,
+            &interior,
             &screen
         ));
         assert!(!transient_overlay_shape(

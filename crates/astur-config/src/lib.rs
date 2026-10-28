@@ -1,6 +1,8 @@
 //! Runtime configuration: the `Config` struct, its documented-default file
 //! templates, and the key/value parser. No Win32 — pure data and string work.
 
+pub mod i18n;
+
 /// User-supplied launcher entry. `icon` accepts an .ico/.png/.exe path or
 /// `auto`; resolution belongs to the Win32 UI process, not this pure crate.
 #[derive(Clone, PartialEq, Debug)]

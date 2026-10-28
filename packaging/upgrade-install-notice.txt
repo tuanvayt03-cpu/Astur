@@ -1,0 +1,32 @@
+ASTUR VI UPDATE 2.4.0.1 (PREVIEW)
+
+This installer UPDATES the existing Astur English installation IN PLACE.
+It is an experimental fork, NOT an official stable upstream release.
+
+BEFORE INSTALLING
+- Quit Astur VI Preview if it is running. Never run both managers together.
+- The original Astur installation will be replaced (same installer AppId
+  and installation directory), but your user settings and workspaces are kept.
+- Close Astur when the setup asks. The installer will offer to launch Astur
+  at the end; this is optional.
+
+ROLLBACK
+The installer backs up the existing Astur.exe, astur-settings.exe,
+astur.conf and navbar.conf (when present) to:
+%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.1
+The first backup is preserved if you reinstall this update.
+To roll back reliably, close Astur and run your original upstream Astur
+installer again. Do not run the original and fork simultaneously.
+The backup is available if you need your previous binary/settings.
+
+WHAT IS NEW
+Vietnamese Settings is the default for users without a locale preference.
+English can be selected inside Settings. Core tray/menu strings are translated.
+Popup overlays are detected with a wider set of styles without suppressing
+or hiding notifications. These app-specific fixes still require live E2E.
+
+LICENSE AND SECURITY
+Apache-2.0 license and third-party notices are included.
+The installer is unsigned; verify the source/checksum and decide whether to
+install. Never disable Windows Defender or SmartScreen to run a file.
+Source: https://github.com/tuanvayt03-cpu/Astur

@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 ROOT = Path(__file__).resolve().parents[1]
 gui = (ROOT / 'crates/astur-settings/src/main.rs').read_text('utf-8')
-locale = (ROOT / 'crates/astur-settings/src/i18n.rs').read_text('utf-8')
+locale = (ROOT / 'crates/astur-config/src/i18n.rs').read_text('utf-8')
 normalize=lambda s:s.replace(r'\u{2026}', '…')
 entries = re.findall(r'(?m)^\s*"([^"]+)"\s*=>\s*"([^"]+)"', locale)
 keys = set(en for en, _ in entries)
@@ -34,5 +34,5 @@ print(f'Localized entries: {len(keys)}; tracked metadata tuples: {len(meta)}')
 for part,missing in coverage.items():print(f'{part}: missing {len(missing)}; {missing[:8]}')
 assert not coverage['navigation'] and not coverage['section_headings']
 assert not coverage['metadata_labels'] and not coverage['metadata_descriptions']
-assert 'mod i18n;' in gui and 'i18n::load' in gui and 'i18n::save' in gui
+assert 'use astur_config::i18n::{self, tr};' in gui and 'i18n::load' in gui and 'i18n::save' in gui
 assert 'tr(label)' in gui and 'tr(desc)' in gui

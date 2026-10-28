@@ -13,8 +13,7 @@
 // flash and could briefly be tiled).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod i18n;
-use i18n::tr;
+use astur_config::i18n::{self, tr};
 
 use astur_config::{
     apply_updates, chord_label, color_to_hex, compile_keys, config_path, default_config_text,
@@ -1285,7 +1284,7 @@ impl App {
             card(ui, |ui| {
                 ui.horizontal(|ui| {
                     let key = c.main_key.label();
-                    ui.label(format!("Hold {key}, the Astur key, for every shortcut below."));
+                    ui.label(tr("Hold {key}, the Astur key, for every shortcut below.").replace("{key}", &key.to_string()));
                     all_keys |= ui.link(tr("Change")).clicked();
                 });
                 ui.add_space(4.0);
@@ -1295,7 +1294,7 @@ impl App {
                     .show(ui, |ui| {
                         for (keys, what) in tips(c) {
                             ui.label(RichText::new(keys).family(semibold()));
-                            ui.label(RichText::new(what).color(sub(ui)));
+                            ui.label(RichText::new(tr(what)).color(sub(ui)));
                             ui.end_row();
                         }
                     });
@@ -1466,7 +1465,7 @@ impl App {
                         for (keys, what, acts) in fixed(c) {
                             ui.label(RichText::new(keys).family(semibold()));
                             ui.vertical(|ui| {
-                                ui.label(RichText::new(what).color(sub(ui)));
+                                ui.label(RichText::new(tr(what)).color(sub(ui)));
                                 note_labels(ui, &notes(&issues, |x| acts.contains(&x.action)));
                             });
                             ui.end_row();
@@ -1481,7 +1480,7 @@ impl App {
                     .show(ui, |ui| {
                         for (keys, what) in mouse(c) {
                             ui.label(RichText::new(keys).family(semibold()));
-                            ui.label(RichText::new(what).color(sub(ui)));
+                            ui.label(RichText::new(tr(what)).color(sub(ui)));
                             ui.end_row();
                         }
                     });
@@ -1956,7 +1955,7 @@ impl App {
             |ui, v| {
                 seg(ui, v, &MOTION_OPTS);
                 if *v == "custom" {
-                    ui.label(RichText::new("Custom").color(sub(ui)));
+                    ui.label(RichText::new(tr("Custom")).color(sub(ui)));
                 }
             },
         );
@@ -2075,7 +2074,7 @@ impl App {
             } else if c.yasb_enabled {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
-                        RichText::new("YASB shows Astur's workspaces once it is set up under")
+                        RichText::new(tr("YASB shows Astur's workspaces once it is set up under"))
                             .color(sub(ui)),
                     );
                     go_yasb = ui.link(tr("Integrations")).clicked();
@@ -2974,7 +2973,7 @@ impl App {
                     }
                 });
                 ui.add_space(8.0);
-                ui.label(RichText::new("Set up YASB").family(semibold()));
+                ui.label(RichText::new(tr("Set up YASB")).family(semibold()));
                 ui.label(tr("1. Turn on YASB workspaces above."));
                 ui.label(tr("2. Merge the widget YAML into YASB's config.yaml. If a widgets section already exists, add astur_workspaces inside it."));
                 ui.horizontal_wrapped(|ui| {
@@ -2985,8 +2984,8 @@ impl App {
                         ui.ctx().copy_text(YASB_WIDGET_CSS.to_string());
                     }
                 });
-                ui.label(RichText::new("The copied YAML uses the port shown above. Append the CSS to styles.css, or keep your existing GlazeWM workspace styles.").color(sub(ui)));
-                egui::CollapsingHeader::new("Preview widget YAML")
+                ui.label(RichText::new(tr("The copied YAML uses the port shown above. Append the CSS to styles.css, or keep your existing GlazeWM workspace styles.")).color(sub(ui)));
+                egui::CollapsingHeader::new(tr("Preview widget YAML"))
                     .id_salt("yasb-yaml")
                     .show(ui, |ui| {
                         egui::ScrollArea::horizontal().show(ui, |ui| ui.code(&yaml));
@@ -2998,7 +2997,7 @@ impl App {
                     ui.label(tr("page."));
                 });
                 ui.add_space(4.0);
-                ui.label(RichText::new("Uses YASB's GlazeWM workspace widget. GlazeWM itself must be stopped. Binding-mode and tiling-direction widgets are not supported.").color(sub(ui)));
+                ui.label(RichText::new(tr("Uses YASB's GlazeWM workspace widget. GlazeWM itself must be stopped. Binding-mode and tiling-direction widgets are not supported.")).color(sub(ui)));
             });
         }
         section(ui, f, "Scripts");
@@ -3168,7 +3167,7 @@ impl App {
         }
         card(ui, |ui| {
             ui.label(
-                RichText::new(format!("Astur Settings {}", env!("CARGO_PKG_VERSION")))
+                RichText::new(format!("{} {}", tr("Astur Settings"), env!("CARGO_PKG_VERSION")))
                     .family(semibold()),
             );
             ui.label(tr("Edits astur.conf and navbar.conf. Changes apply as you make them and Astur reloads them live; Undo (Ctrl+Z) takes them back. Comments and hand edits in the files are kept."));
@@ -3518,7 +3517,7 @@ fn path_row(
         browse_button(ui, id, v, kind);
         ui.add(
             egui::TextEdit::singleline(v)
-                .hint_text(hint)
+                .hint_text(tr(hint))
                 .desired_width(ui.available_width())
                 .margin(FIELD_MARGIN),
         );
@@ -3667,7 +3666,7 @@ fn scratch_window_row(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config) {
     let mut picked = None;
     if row_core(ui, f, meta, class != d.scratchpad_class, false, |ui| {
         picked = window_picker(ui);
-        ui.label(RichText::new(text).color(sub(ui)))
+        ui.label(RichText::new(tr(text)).color(sub(ui)))
             .on_hover_text(format!("Window class: {class}"));
     }) {
         c.scratchpad_class.clone_from(&d.scratchpad_class);
@@ -3702,20 +3701,20 @@ fn bar_style_row(
     );
     if row_core(ui, f, meta, now != BAR_PRESETS[0].name, false, |ui| {
         egui::ComboBox::from_id_salt("home-bar-style")
-            .selected_text(shown)
+            .selected_text(tr(shown))
             .width(ui.available_width().min(300.0))
             .show_ui(ui, |ui| {
                 for p in BAR_PRESETS {
                     if ui
-                        .selectable_label(now == p.name, p.label)
-                        .on_hover_text(p.blurb)
+                        .selectable_label(now == p.name, tr(p.label))
+                        .on_hover_text(tr(p.blurb))
                         .clicked()
                     {
                         apply = Some(p);
                     }
                 }
                 ui.separator();
-                if ui.selectable_label(now == "off", "No bar").clicked() {
+                if ui.selectable_label(now == "off", tr("No bar")).clicked() {
                     *bar_on = false;
                 }
             });
@@ -3744,7 +3743,7 @@ fn gaps_row(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config) {
         |ui, v| {
             seg(ui, v, &opts);
             if v == "custom" {
-                ui.label(RichText::new("Custom").color(sub(ui)));
+                ui.label(RichText::new(tr("Custom")).color(sub(ui)));
             }
         },
     );
@@ -3847,13 +3846,13 @@ fn table<T: Clone + PartialEq>(
         }
         move_row(rows, edit);
         if rows.is_empty() {
-            ui.label(RichText::new("None yet.").color(sub(ui)));
+            ui.label(RichText::new(tr("None yet.")).color(sub(ui)));
         }
         if bad {
             warn_note(ui, "This list is applied once the red rows are fixed; until then Astur keeps its last good version.");
         }
         ui.add_space(4.0);
-        if ui.button(new.0).clicked() {
+        if ui.button(tr(new.0)).clicked() {
             rows.push(new.1);
         }
     }) {
@@ -3952,11 +3951,11 @@ fn rule_ui(ui: &mut Ui, r: &mut RuleRow) -> Option<String> {
     if r.list {
         cell(ui, &mut r.rule.class, "Window class", 200.0)
             .on_hover_text(tr("Class only: * and ? are not read here"));
-        ui.label(RichText::new("older class list").small().color(sub(ui)))
+        ui.label(RichText::new(tr("older class list")).small().color(sub(ui)))
             .on_hover_text(if r.rule.action == "ignore" {
-                "Kept in ignore_classes, which matches by window class alone and is checked before every rule."
+                tr("Kept in ignore_classes, which matches by window class alone and is checked before every rule.")
             } else {
-                "Kept in float_classes, which matches by window class alone and applies only when no rule matches."
+                tr("Kept in float_classes, which matches by window class alone and applies only when no rule matches.")
             });
         return rule_check(r).err();
     }
@@ -3971,7 +3970,7 @@ fn rule_ui(ui: &mut Ui, r: &mut RuleRow) -> Option<String> {
     let mut open = used || ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     if !used
         && ui
-            .selectable_label(open, "Advanced")
+            .selectable_label(open, tr("Advanced"))
             .on_hover_text(tr("Match by the window's class or title too"))
             .clicked()
     {
@@ -3984,9 +3983,9 @@ fn rule_ui(ui: &mut Ui, r: &mut RuleRow) -> Option<String> {
     if open {
         ui.add_space(128.0);
         cell(ui, &mut r.rule.class, "Window class", 170.0)
-            .on_hover_text(format!("The window's class name. {wild} class."));
+            .on_hover_text(tr("The window's class name. {wild} class.").replace("{wild}", wild));
         cell(ui, &mut r.rule.title, "Title contains", 190.0)
-            .on_hover_text(format!("Text in the window's title. {wild} title."));
+            .on_hover_text(tr("Text in the window's title. {wild} title.").replace("{wild}", wild));
         ui.end_row();
     }
     ui.add_space(128.0);
@@ -4095,7 +4094,7 @@ fn hotkey_ui(
     let before = h.action.clone();
     let shown = action_info(&h.action).map_or(h.action.as_str(), |a| a.1);
     egui::ComboBox::from_id_salt("action")
-        .selected_text(shown)
+        .selected_text(tr(shown))
         .width(210.0)
         .height(360.0)
         .show_ui(ui, |ui| {
@@ -4523,7 +4522,7 @@ fn move_row<T>(rows: &mut Vec<T>, edit: Option<(usize, isize)>) {
 fn cell(ui: &mut Ui, v: &mut String, hint: &str, width: f32) -> egui::Response {
     let resp = ui.add(
         egui::TextEdit::singleline(v)
-            .hint_text(hint)
+            .hint_text(tr(hint))
             .desired_width(width)
             .margin(FIELD_MARGIN),
     );
@@ -6777,7 +6776,7 @@ fn chip(ui: &mut Ui, src: Src, w: &str, selected: bool, hidden: bool) -> egui::R
     } else {
         desc
     };
-    resp.on_hover_text(format!("{tip} Drag to move it; click for its settings."))
+    resp.on_hover_text(format!("{} {}", tr(tip), tr("Drag to move it; click for its settings.")))
 }
 
 /// The three zones side by side, as drop targets holding their widgets'
@@ -6818,7 +6817,7 @@ fn zone_editor(ui: &mut Ui, c: &mut Config, sel: &mut Option<Src>) -> bool {
                             rects.push(r.rect);
                         }
                         if chips.is_empty() {
-                            ui.label(RichText::new("Empty").small().color(sub(ui)));
+                            ui.label(RichText::new(tr("Empty")).small().color(sub(ui)));
                         }
                     });
                 })
@@ -6839,7 +6838,7 @@ fn zone_editor(ui: &mut Ui, c: &mut Config, sel: &mut Option<Src>) -> bool {
         }
     });
     ui.add_space(6.0);
-    ui.label(RichText::new("Not on the bar").small().color(sub(ui)));
+    ui.label(RichText::new(tr("Not on the bar")).small().color(sub(ui)));
     let resp = frame
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -7072,12 +7071,12 @@ fn widget_sample(
 /// "Shows" and a sample, after its glyph (one `drawable` passed); "nothing"
 /// for an empty one (the bar then skips the widget).
 fn sample_label(ui: &mut Ui, (glyph, text): (Option<char>, String)) {
-    ui.label(RichText::new("Shows").color(sub(ui)));
+    ui.label(RichText::new(tr("Shows")).color(sub(ui)));
     if let Some(g) = glyph {
         ui.label(RichText::new(g).font(FontId::new(14.0, icons_family())));
     }
     if text.trim().is_empty() && glyph.is_none() {
-        ui.label(RichText::new("nothing").color(sub(ui)));
+        ui.label(RichText::new(tr("nothing")).color(sub(ui)));
     } else {
         ui.label(RichText::new(text).family(semibold()));
     }
@@ -7348,7 +7347,7 @@ fn format_pick(
             if !presets.is_empty() {
                 let shown = preset.map_or("Custom", |p| p.1.as_str());
                 egui::ComboBox::from_id_salt(id)
-                    .selected_text(shown)
+                    .selected_text(tr(shown))
                     .width(240.0)
                     .show_ui(ui, |ui| {
                         for (p, label) in presets {
@@ -7898,7 +7897,7 @@ fn pill_colors(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config, roles: &Ba
                 }
             }
             if ws.is_empty() {
-                ui.label(RichText::new("No text widget on the bar.").color(sub(ui)));
+                ui.label(RichText::new(tr("No text widget on the bar.")).color(sub(ui)));
             }
         });
     }) {
@@ -7971,7 +7970,7 @@ fn preset_diff(c: &Config, stamped: &Config) -> Vec<&'static str> {
 fn short_list(keys: &[&str]) -> String {
     let mut s = keys[..keys.len().min(4)].join(", ");
     if keys.len() > 4 {
-        s.push_str(&format!(" +{} more", keys.len() - 4));
+        s.push_str(&format!(" +{} {}", keys.len() - 4, tr("more")));
     }
     s
 }
@@ -7994,11 +7993,13 @@ fn presets_ui(ui: &mut Ui, c: &Config) -> Option<&'static BarPreset> {
     card(ui, |ui| {
         ui.horizontal(|ui| {
             let text = if diff.is_empty() {
-                format!("Preset: {}", near.label)
+                format!("{}: {}", tr("Preset"), tr(near.label))
             } else {
                 format!(
-                    "Preset: {} \u{2014} modified ({})",
-                    near.label,
+                    "{}: {} \u{2014} {} ({})",
+                    tr("Preset"),
+                    tr(near.label),
+                    tr("modified"),
                     short_list(diff)
                 )
             };
@@ -8026,13 +8027,13 @@ fn presets_ui(ui: &mut Ui, c: &Config) -> Option<&'static BarPreset> {
                     Layout::top_down(Align::Min),
                     |ui| {
                         ui.set_width(w);
-                        ui.label(RichText::new(p.label).family(semibold()));
-                        ui.label(RichText::new(p.blurb).small().color(sub(ui)));
+                        ui.label(RichText::new(tr(p.label)).family(semibold()));
+                        ui.label(RichText::new(tr(p.blurb)).small().color(sub(ui)));
                     },
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if diff.is_empty() {
-                        ui.label(RichText::new("In use").color(sub(ui)));
+                        ui.label(RichText::new(tr("In use")).color(sub(ui)));
                     } else if ui.button(tr("Apply")).clicked() {
                         apply = Some(*p);
                     }
@@ -8575,10 +8576,8 @@ fn font_row(ui: &mut Ui, f: &mut Find, meta: Meta, v: &mut String, d: &str) {
                 one_line(v);
             }
             if missing {
-                ui.colored_label(ui.visuals().warn_fg_color, "Not installed")
-                    .on_hover_text(
-                        "No installed font has this name, so Windows draws a stand-in font.",
-                    );
+                ui.colored_label(ui.visuals().warn_fg_color, tr("Not installed"))
+                    .on_hover_text(tr("No installed font has this name, so Windows draws a stand-in font."));
             }
             font_preview(ui, id, v);
         });

@@ -1,0 +1,151 @@
+name: Astur VI in-place update (preview)
+
+on:
+  push:
+    branches: ["feat/vi-full-update-popup-v2"]
+    paths:
+      - ".github/workflows/upgrade-release.yml"
+      - "packaging/astur-vi-update.iss"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  UPGRADE_TAG: astur-vi-update-2.4.0.1
+  UPGRADE_VERSION: 2.4.0.1
+
+jobs:
+  upgrade:
+    if: github.ref == 'refs/heads/feat/vi-full-update-popup-v2'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Test translation contract
+        run: python scripts/test_i18n_inventory.py
+
+      - name: Test safe update contract
+        run: python scripts/test_upgrade_packaging.py
+
+      - name: Check Win32 popup inspector syntax
+        run: python -m py_compile scripts/capture_notification_windows.py
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --workspace
+
+      - name: Build Windows x64 release
+        run: cargo build --release --workspace
+
+      - name: Verify executables and legal notices
+        shell: pwsh
+        run: |
+          foreach ($file in @('target/release/astur.exe', 'target/release/astur-settings.exe', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md')) {
+            if (-not (Test-Path $file -PathType Leaf)) { throw "Missing $file" }
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile upstream-identity seed installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw 'Missing ISCC.exe' }
+          & $iscc 'packaging\astur.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Upstream identity seed installer failed' }
+
+      - name: Compile in-place Astur VI update
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc 'packaging\astur-vi-update.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'VI update installer build failed' }
+
+      - name: Smoke-test upgrade over upstream AppId
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = Join-Path $env:RUNNER_TEMP 'AsturExistingInstall'
+          $seed = (Resolve-Path 'dist/Astur-Setup-2.4.0.exe').Path
+          $update = (Resolve-Path "dist/upgrade/Astur-VI-Update-Setup-$env:UPGRADE_VERSION.exe").Path
+          # Seed same AppId as original Astur at a CUSTOM path, then upgrade
+          # without /DIR to verify UsePreviousAppDir and preserve the marker.
+          $p = Start-Process -FilePath $seed -ArgumentList @(
+            '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target"
+          ) -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Seed install failed: $($p.ExitCode)" }
+          $original = Join-Path $target 'Astur.exe'
+          $settings = Join-Path $target 'astur-settings.exe'
+          if (-not (Test-Path $original) -or -not (Test-Path $settings)) { throw 'Seed EXEs missing' }
+          $previousHash = (Get-FileHash -Path $original -Algorithm SHA256).Hash
+          $marker = Join-Path $target 'ASTUR_KEEP_EXISTING_FILES.txt'
+          Set-Content -LiteralPath $marker -Value 'preserved during in-place update'
+          $userConf = Join-Path $env:USERPROFILE '.astur'
+          New-Item -ItemType Directory -Path $userConf -Force | Out-Null
+          $configFile = Join-Path $userConf 'astur.conf'
+          $barFile = Join-Path $userConf 'navbar.conf'
+          Set-Content -LiteralPath $configFile -Value 'outer_gap = 9'
+          Set-Content -LiteralPath $barFile -Value 'height = 31'
+          $cfgHash = (Get-FileHash $configFile -Algorithm SHA256).Hash
+          $p = Start-Process -FilePath $update -ArgumentList @(
+            '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          ) -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "In-place update failed: $($p.ExitCode)" }
+          if (-not (Test-Path $original) -or -not (Test-Path $settings)) { throw 'Upgrade EXEs missing' }
+          if (-not (Test-Path $marker)) { throw 'Upgrade did not retain original install directory' }
+          if ((Get-FileHash $configFile -Algorithm SHA256).Hash -ne $cfgHash) { throw 'User config changed by update' }
+          $backup = Join-Path $env:LOCALAPPDATA 'Astur\UpgradeBackup\before-vi-update-2.4.0.1'
+          $oldBinary = Join-Path $backup 'Astur.exe'
+          if (-not (Test-Path $oldBinary)) { throw 'Original binary rollback backup missing' }
+          if ((Get-FileHash $oldBinary -Algorithm SHA256).Hash -ne $previousHash) { throw 'Rollback binary hash mismatch' }
+          foreach ($f in @('astur-settings.exe','astur.conf','navbar.conf')) {
+            if (-not (Test-Path (Join-Path $backup $f))) { throw "Missing rollback backup $f" }
+          }
+          $uninstaller = Join-Path $target 'unins000.exe'
+          if (-not (Test-Path $uninstaller)) { throw 'Upgraded uninstall entry missing' }
+          $p = Start-Process -FilePath $uninstaller -ArgumentList @(
+            '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          ) -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw 'Uninstall smoke failed' }
+
+      - name: Create checksum manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = "dist/upgrade/Astur-VI-Update-Setup-$env:UPGRADE_VERSION.exe"
+          if (-not (Test-Path $installer -PathType Leaf)) { throw 'Missing update .exe' }
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash *$([System.IO.Path]::GetFileName($installer))" |
+            Set-Content 'dist/upgrade/SHA256SUMS.txt' -Encoding utf8
+          Get-Content 'dist/upgrade/SHA256SUMS.txt'
+
+      - name: Publish preview update
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release view $env:UPGRADE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'Update tag already exists; refuse overwrite' }
+          $files = @(
+            "dist/upgrade/Astur-VI-Update-Setup-$env:UPGRADE_VERSION.exe",
+            "dist/upgrade/SHA256SUMS.txt"
+          )
+          gh release create $env:UPGRADE_TAG @files --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --latest=false --title "Astur VI Update $env:UPGRADE_VERSION (Preview)" --notes-file 'packaging/upgrade-release-notes.md'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to publish preview update' }
