@@ -1284,7 +1284,7 @@ impl App {
             card(ui, |ui| {
                 ui.horizontal(|ui| {
                     let key = c.main_key.label();
-                    ui.label(tr("Hold {key}, the Astur key, for every shortcut below.").replace("{key}", &key.to_string()));
+                    ui.label(tr("Hold {key}, the Astur key, for every shortcut below.").replace("{key}", key));
                     all_keys |= ui.link(tr("Change")).clicked();
                 });
                 ui.add_space(4.0);
