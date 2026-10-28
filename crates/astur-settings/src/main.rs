@@ -950,24 +950,31 @@ impl App {
         ui.add_space(14.0);
         ui.horizontal(|ui| {
             ui.add_space(6.0);
-            ui.label(RichText::new(tr("Astur Settings")).size(13.0).color(sub(ui)));
+            ui.label(
+                RichText::new(tr("Astur Settings"))
+                    .size(13.0)
+                    .color(sub(ui)),
+            );
         });
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.label(tr("Language"));
             let mut selected = i18n::language().to_string();
             egui::ComboBox::from_id_salt("astur_ui_language")
-                .selected_text(if selected == "vi" { "Tiếng Việt" } else { "English" })
+                .selected_text(if selected == "vi" {
+                    "Tiếng Việt"
+                } else {
+                    "English"
+                })
                 .width(125.0)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut selected, "en".to_owned(), "English");
                     ui.selectable_value(&mut selected, "vi".to_owned(), "Tiếng Việt");
                 });
             if selected != i18n::language() {
-                if let Err(error) = i18n::save(
-                    &self.paths[0].with_file_name("ui-language.txt"),
-                    &selected,
-                ) {
+                if let Err(error) =
+                    i18n::save(&self.paths[0].with_file_name("ui-language.txt"), &selected)
+                {
                     self.error = Some(format!("Couldn't save display language: {error}"));
                 }
             }
@@ -4258,11 +4265,14 @@ fn more(ui: &mut Ui, f: &mut Find, salt: &str, add: impl FnOnce(&mut Ui, &mut Fi
     let asked = ui
         .data_mut(|d| d.remove_temp::<bool>(more_id(salt)))
         .is_some();
-    let r =
-        egui::CollapsingHeader::new(RichText::new(tr("More options")).size(15.0).family(semibold()))
-            .id_salt((salt, "more"))
-            .open(asked.then_some(true))
-            .show_unindented(ui, |ui| add(ui, f));
+    let r = egui::CollapsingHeader::new(
+        RichText::new(tr("More options"))
+            .size(15.0)
+            .family(semibold()),
+    )
+    .id_salt((salt, "more"))
+    .open(asked.then_some(true))
+    .show_unindented(ui, |ui| add(ui, f));
     if asked {
         r.header_response.scroll_to_me(Some(Align::Min));
     }

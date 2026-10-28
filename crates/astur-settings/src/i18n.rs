@@ -6,7 +6,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static VIETNAMESE: AtomicBool = AtomicBool::new(false);
 
 pub fn language() -> &'static str {
-    if VIETNAMESE.load(Ordering::Relaxed) { "vi" } else { "en" }
+    if VIETNAMESE.load(Ordering::Relaxed) {
+        "vi"
+    } else {
+        "en"
+    }
 }
 
 pub fn set_language(lang: &str) {
@@ -20,7 +24,10 @@ pub fn load(path: &Path) {
 
 pub fn save(path: &Path, lang: &str) -> std::io::Result<()> {
     if !matches!(lang, "en" | "vi") {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "unsupported locale"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "unsupported locale",
+        ));
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -31,7 +38,9 @@ pub fn save(path: &Path, lang: &str) -> std::io::Result<()> {
 }
 
 pub fn tr<'a>(text: &'a str) -> &'a str {
-    if language() != "vi" { return text; }
+    if language() != "vi" {
+        return text;
+    }
     match text {
         "Astur Settings" => "Cài đặt Astur",
         "Home" => "Trang chủ",
@@ -373,7 +382,10 @@ mod tests {
         assert_eq!(tr("Home"), "Home");
         set_language("vi");
         assert_eq!(tr("Home"), "Trang chủ");
-        assert_eq!(tr("some future upstream field"), "some future upstream field");
+        assert_eq!(
+            tr("some future upstream field"),
+            "some future upstream field"
+        );
         set_language("en");
     }
     #[test]
