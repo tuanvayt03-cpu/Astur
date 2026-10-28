@@ -1121,7 +1121,7 @@ impl App {
                 ui.label(RichText::new(tr(text)).size(12.0).color(color))
             })
             .response
-            .on_hover_text("Changes apply as you make them; Astur reloads them within a second. A list with a red row keeps its last good version in the file until the row is fixed.");
+            .on_hover_text(tr("Changes apply as you make them; Astur reloads them within a second. A list with a red row keeps its last good version in the file until the row is fixed."));
     }
 
     fn toast_ui(&mut self, ctx: &egui::Context) {
@@ -3401,11 +3401,11 @@ fn combo(ui: &mut Ui, salt: impl std::hash::Hash, v: &mut String, opts: &[(&str,
         .map_or(v.as_str(), |o| o.1)
         .to_string();
     egui::ComboBox::from_id_salt(salt)
-        .selected_text(shown)
+        .selected_text(tr(&shown).to_owned())
         .width(w)
         .show_ui(ui, |ui| {
             for &(o, l) in opts {
-                ui.selectable_value(v, o.to_string(), l);
+                ui.selectable_value(v, o.to_string(), tr(l));
             }
         });
 }
@@ -3459,14 +3459,14 @@ fn choice_row(
     }
     if row_core(ui, f, meta, v != d, false, |ui| {
         egui::ComboBox::from_id_salt(id)
-            .selected_text(choice_label(v, opts, browse))
+            .selected_text(tr(&choice_label(v, opts, browse)).to_owned())
             .width(ui.available_width().min(300.0))
             .height(400.0)
             .truncate()
             .show_ui(ui, |ui| {
                 for o in opts {
                     if ui
-                        .selectable_label(same_app(&o.command, v), &o.label)
+                        .selectable_label(same_app(&o.command, v), tr(&o.label))
                         .clicked()
                     {
                         v.clone_from(&o.command);
@@ -3481,8 +3481,8 @@ fn choice_row(
                     }
                 }
                 if ui
-                    .selectable_label(false, "Custom\u{2026}")
-                    .on_hover_text("Type it yourself, under More options")
+                    .selectable_label(false, tr("Custom\u{2026}"))
+                    .on_hover_text(tr("Type it yourself, under More options"))
                     .clicked()
                 {
                     open_more(ui.ctx(), salt);
@@ -4230,8 +4230,8 @@ fn theme_color(
         }
         let mut auto = v.is_none();
         if ui
-            .checkbox(&mut auto, "Auto")
-            .on_hover_text("Follow the theme")
+            .checkbox(&mut auto, tr("Auto"))
+            .on_hover_text(tr("Follow the theme"))
             .changed()
         {
             *v = if auto {
@@ -4259,7 +4259,7 @@ fn more(ui: &mut Ui, f: &mut Find, salt: &str, add: impl FnOnce(&mut Ui, &mut Fi
         .data_mut(|d| d.remove_temp::<bool>(more_id(salt)))
         .is_some();
     let r =
-        egui::CollapsingHeader::new(RichText::new("More options").size(15.0).family(semibold()))
+        egui::CollapsingHeader::new(RichText::new(tr("More options")).size(15.0).family(semibold()))
             .id_salt((salt, "more"))
             .open(asked.then_some(true))
             .show_unindented(ui, |ui| add(ui, f));
@@ -4441,7 +4441,7 @@ fn seg(ui: &mut Ui, v: &mut String, opts: &[(&str, &str)]) {
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             let mut each = |&(o, l): &(&str, &str)| {
-                if ui.selectable_label(v.as_str() == o, l).clicked() {
+                if ui.selectable_label(v.as_str() == o, tr(l)).clicked() {
                     *v = o.to_string();
                 }
             };
@@ -7345,7 +7345,7 @@ fn format_pick(
                             }
                         }
                         ui.separator();
-                        if ui.selectable_label(false, "Custom\u{2026}").clicked() {
+                        if ui.selectable_label(false, tr("Custom\u{2026}")).clicked() {
                             ui.data_mut(|m| m.insert_temp(id, true));
                         }
                     });
@@ -7717,7 +7717,7 @@ fn app_menu(ui: &mut Ui, id: egui::Id, v: &mut String) -> bool {
         .show_ui(ui, |ui| {
             for o in &found {
                 if ui
-                    .selectable_label(same_app(&o.command, v), &o.label)
+                    .selectable_label(same_app(&o.command, v), tr(&o.label))
                     .clicked()
                 {
                     v.clone_from(&o.command);
@@ -8609,7 +8609,7 @@ fn font_menu(ui: &mut Ui, id: egui::Id, v: &mut String, fonts: Option<&Vec<Strin
         });
     ui.separator();
     if ui
-        .selectable_label(false, "Custom\u{2026}")
+        .selectable_label(false, tr("Custom\u{2026}"))
         .on_hover_text("Type a font name")
         .clicked()
     {
