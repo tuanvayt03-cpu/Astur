@@ -3124,7 +3124,9 @@ impl App {
                 }
                 reload = ui
                     .button("Reload from disk")
-                    .on_hover_text(tr("Take the files as they are now (after editing them by hand)"))
+                    .on_hover_text(tr(
+                        "Take the files as they are now (after editing them by hand)",
+                    ))
                     .clicked();
             });
         }
@@ -3990,8 +3992,9 @@ fn rule_ui(ui: &mut Ui, r: &mut RuleRow) -> Option<String> {
     ui.add_space(128.0);
     place(ui, &mut r.rule.workspace, "workspace", MAX_WORKSPACES)
         .on_hover_text(tr("Open its windows on this workspace"));
-    place(ui, &mut r.rule.monitor, "monitor", 9)
-        .on_hover_text(tr("Open its windows on this monitor (counted from the left)"));
+    place(ui, &mut r.rule.monitor, "monitor", 9).on_hover_text(tr(
+        "Open its windows on this monitor (counted from the left)",
+    ));
     rule_check(r).err()
 }
 
@@ -8658,7 +8661,8 @@ fn font_preview(ui: &mut Ui, id: egui::Id, name: &str) {
     };
     if let Some(t) = tex {
         let image = egui::Image::new((t.id(), t.size_vec2() / ppp)).tint(ui.visuals().text_color());
-        ui.add(image).on_hover_text(tr("How Windows draws this font"));
+        ui.add(image)
+            .on_hover_text(tr("How Windows draws this font"));
     }
 }
 
