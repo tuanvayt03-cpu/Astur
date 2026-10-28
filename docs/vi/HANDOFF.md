@@ -17,7 +17,7 @@ Date: 2026-10-28. State: **PARTIAL — CODE QA IN PROGRESS; NOT RELEASE READY**.
 ## Fresh evidence available
 - `python scripts/test_i18n_inventory.py`: exit 0; 367 translations, 75 literal metadata tuples, 0 missing in covered groups, no duplicate/placeholder defect.
 - `python -m py_compile` for diagnostic script and localization test: exit 0.
-- CI run https://github.com/tuanvayt03-cpu/Astur/actions/runs/40645288503 for Rust commit `4efaf42`: **Format PASS, Clippy PASS, Test PASS, Release build PASS** (overall success). Subsequent CI after audit/workflow changes must be inspected separately.
+- CI run https://github.com/tuanvayt03-cpu/Astur/actions/runs/40645288503 for Rust commit `4efaf42`: **Format PASS, Clippy PASS, Test PASS, Release build PASS** (overall success). Audit/QA checkpoint `5db2584` also passed full Windows CI, including translation and probe steps: https://github.com/tuanvayt03-cpu/Astur/actions/runs/40646010315. CI/release workflow action versions were then updated to Node24 majors, requiring a fresh CI result.
 - CodeLocal `where cargo` still fails though Rustup and Rust GNU MSI installed with winget. Use successful GitHub Actions Windows CI, not unavailable local Cargo.
 - Notification live capture unavailable; no evidence allowing a safe popup filter change. Window list observation contained no offending transient. **Notification bug remains uncorrected and unverified**.
 
