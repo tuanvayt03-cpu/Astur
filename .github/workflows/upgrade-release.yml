@@ -106,10 +106,19 @@ jobs:
           Set-Content -LiteralPath $configFile -Value 'outer_gap = 9'
           Set-Content -LiteralPath $barFile -Value 'height = 31'
           $cfgHash = (Get-FileHash $configFile -Algorithm SHA256).Hash
+          $setupLog = Join-Path $env:RUNNER_TEMP 'astur-inplace-upgrade.log'
           $p = Start-Process -FilePath $update -ArgumentList @(
-            '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+            '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$setupLog"
           ) -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "In-place update failed: $($p.ExitCode)" }
+          if ($p.ExitCode -ne 0) {
+            if (Test-Path $setupLog) {
+              Write-Host '---- Installer tail (isolated runner) ----'
+              Get-Content -Path $setupLog -Tail 110
+            } else {
+              Write-Host 'Installer log file not generated'
+            }
+            throw "In-place update failed: $($p.ExitCode)"
+          }
           if (-not (Test-Path $original) -or -not (Test-Path $settings)) { throw 'Upgrade EXEs missing' }
           if (-not (Test-Path $marker)) { throw 'Upgrade did not retain original install directory' }
           if ((Get-FileHash $configFile -Algorithm SHA256).Hash -ne $cfgHash) { throw 'User config changed by update' }
