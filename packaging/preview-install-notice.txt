@@ -1,0 +1,28 @@
+ASTUR VI PREVIEW - READ BEFORE YOU START
+
+This is a test build of the Vietnamese-language fork. It is NOT the
+original Astur and NOT a stable release. The notification overlay
+detection is unit-tested but has not passed live Telegram/Zalo E2E.
+
+INSTALLATION SAFETY
+- Installs into a different folder, with its own Start menu entries
+  and uninstall record. It does not overwrite the original Astur.
+- Does not set startup, launch automatically, or close running apps.
+- Do NOT run original Astur and Astur VI Preview simultaneously.
+  They both install global window-management hooks and can conflict.
+- Both versions currently use the SAME user configuration at
+  %USERPROFILE%\.astur. Independent install folders do NOT isolate
+  config, workspaces, or rescue data.
+- Before running the preview, EXIT the original Astur via its tray
+  menu, and BACK UP %USERPROFILE%\.astur.
+- Restore the backup if you want to revert your settings. To return
+  to original Astur, exit the Preview first, then start the original.
+
+NOTICE
+Not every dialog, launcher menu or tray label is translated yet.
+Telegram/Zalo/Windows notification popups still need real desktop
+verification to establish the fix is complete.
+
+SOURCE AND LICENSE
+https://github.com/tuanvayt03-cpu/Astur
+Apache-2.0; LICENSE and THIRD_PARTY_NOTICES.md included.
