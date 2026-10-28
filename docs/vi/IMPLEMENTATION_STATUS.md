@@ -1,6 +1,6 @@
 # Astur VI — Implementation Status
 
-2026-10-28 · **Experimental Preview installer and portable ZIP released; full product remains partial, not Stable.** Repo `tuanvayt03-cpu/Astur`, branch `feat/vi-notifications`.
+2026-10-28 · **In-place Astur VI Update Preview 2.4.0.1 released and upgrade smoke PASSED; NOT Stable.** Repo `tuanvayt03-cpu/Astur`, branch `feat/vi-full-update-popup-v2`. Earlier independent Preview also exists.
 
 ## Verified scope
 - `astur-settings` GUI English/Vietnamese chooser, preference in `ui-language.txt`, English fallback and no changes to existing window-management settings.
@@ -18,3 +18,11 @@ A **non-suppressing compact-overlay classifier** now exists in `crates/astur/src
 4. Preview release: https://github.com/tuanvayt03-cpu/Astur/releases/tag/astur-vi-preview-2.4.0.1 (installer, portable ZIP, SHA256). Keep draft PR unmerged and publish **Stable only** after fresh verified acceptance; update handoff with SHA, PR and machine evidence.
 
 See `docs/vi/AUDIT_2026-10-28.md`, `docs/vi/HANDOFF.md`, `docs/vi/SDD.md`, and `docs/vi/CONTRACT.md`.
+
+## NEW V2 updater (most recent, authoritative)
+- GitHub update pre-release: https://github.com/tuanvayt03-cpu/Astur/releases/tag/astur-vi-update-2.4.0.1 ; source commit `425fe151d0697a4a4d5a885cd7de5d958d8f98d3`. This release has the **same AppId** as the English original and is not the old separate VI Preview.
+- Windows CI full SUCCESS: https://github.com/tuanvayt03-cpu/Astur/actions/runs/40680404202 ; verified installer build, original seed install, upgrade, config preservation, backup hash, uninstall and checksums. SHA-256 installer `0d969b989e735d072e033563cbb71a97521757471aa12de383f5c5317f4ede39`.
+- Shared VI/EN catalog expanded to **543** strings including manager tray/power menus; language defaults VI for first launch. Some native/dynamic UI strings may remain English. User-provided app data, app titles and technical identifiers intentionally stay unchanged.
+- Notification-adoption classifier now handles compact non-topmost corner popups and layered popup-like windows; only excludes from tile/tab registration, never suppresses native popup. **Real Zalo/Telegram E2E remains UNVERIFIED**. No unstable blanket process or framework class ignore was installed.
+- Previous Preview version remains installable separately but should be **exited** before running this in-place updater; never simultaneously launch two Astur managers. Same user config directory `%USERPROFILE%\.astur` preserved. Installer backup under `%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.1`.
+- Stable release, draft PR #3 merge and full first-party translation must wait for screenshot/geometry E2E and user acceptance; do not claim full 100% translation from partial static catalog coverage.

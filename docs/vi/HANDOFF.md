@@ -1,44 +1,30 @@
-# Astur VI — Durable Handoff / Recovery Checkpoint
+# Astur VI — Handoff after in-place updater V2 (2026-10-28)
 
-Date: 2026-10-28. Lifecycle: **PREVIEW_RELEASED** (installer and portable artifacts published; **NOT STABLE**, runtime popup E2E remains unverified).
+## Current project state
+- GitHub fork: https://github.com/tuanvayt03-cpu/Astur
+- Local repo: `D:\Project\Astur`, branch `feat/vi-full-update-popup-v2`; draft PR #3 https://github.com/tuanvayt03-cpu/Astur/pull/3 remains unmerged.
+- **NEW PREVIEW UPDATE release**: https://github.com/tuanvayt03-cpu/Astur/releases/tag/astur-vi-update-2.4.0.1
+- The **immutable release source commit** is `425fe151d0697a4a4d5a885cd7de5d958d8f98d3`. Later docs-only commits may be ahead on the branch.
+- Windows GitHub Actions **SUCCESS**: https://github.com/tuanvayt03-cpu/Astur/actions/runs/40680404202, including source fmt, 543-key translation contract, safe-upgrade static contract, Win32 probe syntax, Clippy, Rust workspace unit tests, release build, Inno compile and a simulated in-place upgrade from an already installed Astur using the same AppId.
+- User's running original and separate VI Preview on their PC were **not changed**. No install or process kill on user's computer.
 
-## Source identity
-- Upstream: `Page011/Astur@b60500f` (v2.4.0).
-- User-owned fork: https://github.com/tuanvayt03-cpu/Astur
-- Local checkout: `D:\Project\Astur`; branch `feat/vi-notifications`; remote `origin/feat/vi-notifications`.
-- Release source commit: **`af9b52b56a308fc090b1cea38bf76599fd9bf4d3`**.
-- Released tag: `astur-vi-preview-2.4.0.1` (pre-release, never matches the official `v*` stable workflow).
-- Draft feature PR #2 remains unmerged: https://github.com/tuanvayt03-cpu/Astur/pull/2
-- Primary integrator owned all writes. Original Astur installation, window process, configuration and other local repositories were not modified.
+## Verified release assets
+- `Astur-VI-Update-Setup-2.4.0.1.exe` (4,445,026 bytes), SHA-256 `0d969b989e735d072e033563cbb71a97521757471aa12de383f5c5317f4ede39`.
+- `SHA256SUMS.txt` published with the release.
+- Release is marked **pre-release**, not stable. `AppId` and installation directory match the original upstream `packaging/astur.iss`, unlike earlier VI Preview which has separate identity.
+- Setup backs up current installed `Astur.exe`, `astur-settings.exe`, `astur.conf`, `navbar.conf` (if they exist), first-copy preserved under `%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.1`. Setup preserves a custom existing install path, shortcut/startup task selections, existing config, and can optionally open app afterward. Simulated Windows runner seed-install -> update -> file/config/backup checks -> uninstall all PASS.
 
-## Verified assets
-Release: https://github.com/tuanvayt03-cpu/Astur/releases/tag/astur-vi-preview-2.4.0.1
+## Technical changes and independent audit
+- Shared `astur-config::i18n` catalog, **543** unique EN/VI mappings (prior 367), and use in both Settings UI and native manager tray/power menu. Missing locale preference defaults VI; explicit English remains selectable. Program identifiers, user text, process/window names and config values never translated.
+- Previous overlay filter required `WS_EX_TOPMOST`. Broadened **tiling-adoption-only** exclusion for compact borderless corner / layered notification-like windows, even if not topmost. Does not hide, close, silence, reposition or eat input from notifications. Synthetic positive and negative tests pass.
+- Debugging finding: first upgrade smoke failed because installer Pascal script used unsupported `ExpandConstant('{userprofile}')`; Windows log showed `Internal error: Unknown constant "userprofile"`. Replaced with `{%USERPROFILE}` and added static guard against regression. Fresh end-to-end run `40680404202` PASSED.
+- Audit findings and acceptance gates: `docs/vi/AUDIT_UPDATE_V2.md`; upgrade user instructions: `packaging/upgrade-install-notice.txt` and `upgrade-release-notes.md`.
 
-1. `Astur-VI-Preview-Setup-2.4.0-preview.1.exe`, 4,426,196 bytes, SHA-256 `793b166ebae3baf1e4e1650fd41a4487f2e8e3fb0150e14a78d3d434c67bc99a`.
-2. `Astur-VI-Preview-Portable-2.4.0-preview.1.zip`, 3,358,773 bytes, SHA-256 `3f72ce1a620e70857e8ffea7891d1b920a9f7063df7af791bef08144a6b171dc`.
-3. `SHA256SUMS.txt`, uploaded as a release asset.
-
-Verified with GitHub Release API: `isPrerelease=true`, all three assets `state=uploaded`; target commit `af9b52b56a308fc090b1cea38bf76599fd9bf4d3`.
-
-## Build and package fresh machine evidence
-GitHub Actions release job **SUCCESS**: https://github.com/tuanvayt03-cpu/Astur/actions/runs/40667462157
-
-All completed successfully: Windows checkout, Rust stable, `cargo fmt --all --check`, preview installation safety test, localization catalog test, diagnostics syntax check, `cargo clippy --workspace --all-targets -- -D warnings`, workspace unit tests, `cargo build --release --workspace`, both executable/legal-file assertions, Inno Setup installation, preview installer generation, portable ZIP + checksum, isolated Windows runner **silent install/uninstall smoke**, ZIP extraction and file validation, and pre-release publication.
-
-Local `python scripts/test_preview_packaging.py` and `python scripts/test_i18n_inventory.py` also EXIT 0. Local Cargo PATH remains unavailable; GitHub Windows CI is build evidence. No full GUI or native Zalo/Telegram real popup E2E evidence.
-
-## Preview safety boundary
-- Installer GUID is distinct from upstream, directory is `%LOCALAPPDATA%\Programs\Astur VI Preview`, independent Start Menu shortcuts and uninstall.
-- No automatic launch, autostart, closure of other processes, or replacement of the installed original. Actual Preview has not been launched on the user's desktop.
-- **Critical runtime limitation:** Both installations currently share `%USERPROFILE%\.astur` configuration and rescue data, plus global window hooks. Users must EXIT original Astur and BACK UP `%USERPROFILE%\.astur` before running the Preview; never run the two simultaneously.
-- Unsigned installer may prompt SmartScreen; user must evaluate provenance/checksum rather than disable protection.
-- Includes 367 EN/VI translations and notification classifier that excludes compact notification-like HWNDs from tiling/tabs while letting them pop normally. **Partial localization and class-specific popup behavior still unverified**.
-
-## Remaining work for Stable
-P0: Reproduce real Zalo/Telegram/Windows toast and Snipping Tool overlay; capture sanitized HWND metadata and verify toast appearance, dismissal, unchanged 2/4/6 tile geometry, app main-window tiling.
-P1: Finish complete first-party localization incl. native launcher, tray, status bar, popups and installer, visual QA for light/dark and DPI.
-P1: Better runtime config isolation for side-by-side execution if required; until then no concurrent launch.
-P2: Separate user-acceptance test and appropriately signed stable release if applicable. Do not merge draft PR or announce Stable prematurely.
+## Outstanding limitations (do NOT claim COMPLETE Stable)
+1. **Real Zalo, Telegram, Snipping Tool native popup E2E still UNVERIFIED**. User screenshot of previous Preview shows tiles resized, but actual offending HWND class/style had not been captured. Need real popup and before/after 2/4/6 window geometry + confirm popup animation/dismissal and main Zalo tileability.
+2. **Localization NOT proven 100%**. 543 static mappings plus UI wrappers and native tray/power items compile/test, but some dynamic strings/native launcher/status bar and user-facing text may remain English. Need screenshot-by-screenshot visual audit on user machine, various DPI/scales and light/dark modes.
+3. Setup is **unsigned**, may trigger SmartScreen; do not advise bypassing security. Separate installed VI Preview may remain on PC: **exit it** before installing/updating original to avoid two simultaneous managers. For rollback, quit updated Astur and reinstall original upstream installer, using saved binaries/config as needed. Keep original config backup until acceptance.
+4. Current update published only as Preview pre-release, draft PR unmerged, no source history rewritten.
 
 ## Recovery protocol
-After this handoff edit, refresh final HEAD, branch, local dirty state, remote and CI. This documentation commit may be ahead of the released artifact's immutable source commit. Do not force-push or rewrite tag/release. Preserve existing binaries and original user configuration.
+Refresh `git status --short --branch`, current HEAD, release asset API, and CI run. Preserve release source tag and current user config. Use a new version/tag for further code changes; do NOT overwrite 2.4.0.1 published binaries. Do not claim bug fixed for real native toasts until observed.
