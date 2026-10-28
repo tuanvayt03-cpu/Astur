@@ -1,6 +1,6 @@
 # Astur VI — Implementation Status
 
-2026-10-28 · **Partial implementation; no installer release.** Repo `tuanvayt03-cpu/Astur`, branch `feat/vi-notifications`.
+2026-10-28 · **Experimental Preview installer and portable ZIP released; full product remains partial, not Stable.** Repo `tuanvayt03-cpu/Astur`, branch `feat/vi-notifications`.
 
 ## Verified scope
 - `astur-settings` GUI English/Vietnamese chooser, preference in `ui-language.txt`, English fallback and no changes to existing window-management settings.
@@ -14,7 +14,7 @@ A **non-suppressing compact-overlay classifier** now exists in `crates/astur/src
 ## Remaining to COMPLETE
 1. Obtain a real popup window signature and reproduce; match it against the new classifier, add any necessary targeted regression and verify native notification presentation, dismissal, normal main app windows and stable grid geometry.
 2. Complete untranslated first-party WM UI (launcher/tray/status/power), Windows DPI/Unicode screenshots and language persistence E2E.
-3. Verify final Windows CI full suite and isolated installer/rollback/package notices.
-4. Merge/promote and publish only after fresh verified acceptance; update handoff with SHA, PR and machine evidence.
+3. Preview Windows build and isolated installer install/uninstall PASS at https://github.com/tuanvayt03-cpu/Astur/actions/runs/40667462157. Verify actual user-desktop UI, lifecycle/rollback and release packaging again before Stable promotion.
+4. Preview release: https://github.com/tuanvayt03-cpu/Astur/releases/tag/astur-vi-preview-2.4.0.1 (installer, portable ZIP, SHA256). Keep draft PR unmerged and publish **Stable only** after fresh verified acceptance; update handoff with SHA, PR and machine evidence.
 
 See `docs/vi/AUDIT_2026-10-28.md`, `docs/vi/HANDOFF.md`, `docs/vi/SDD.md`, and `docs/vi/CONTRACT.md`.

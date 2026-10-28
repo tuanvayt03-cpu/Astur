@@ -1,6 +1,6 @@
 # Astur VI Preview — Packaging and Release Contract
 
-Status: packaging implementation authored; **no user installation or runtime execution performed**. Source branch: `feat/vi-notifications` (fork `tuanvayt03-cpu/Astur`). Preview version: `2.4.0-preview.1`.
+Status: **Preview package published and install/uninstall tested on isolated GitHub Windows runner; no user-desktop installation or runtime execution performed**. Source branch: `feat/vi-notifications` (fork `tuanvayt03-cpu/Astur`). Preview version: `2.4.0-preview.1`.
 
 ## Objective
 Ship an actual Windows x64 `.exe` installer and a portable `.zip`, without replacing or shutting down the original Astur. The installer must carry both `Astur.exe` and `astur-settings.exe`, licensed notices and a clear first-run warning.
@@ -32,3 +32,10 @@ Actual Zalo, Telegram, Snipping Tool and Windows notification classification is 
 3. Install Preview. It does **not** auto-launch.
 4. Start Preview from its Start Menu entry to test.
 5. Before returning to original, quit Preview and restore the backup if its configuration was changed; uninstall Preview via its own entry.
+
+## Verified pre-release checkpoint
+- Source commit: `af9b52b56a308fc090b1cea38bf76599fd9bf4d3`.
+- Release: https://github.com/tuanvayt03-cpu/Astur/releases/tag/astur-vi-preview-2.4.0.1
+- Windows packaging workflow: https://github.com/tuanvayt03-cpu/Astur/actions/runs/40667462157 — **SUCCESS** for fmt, catalog, probe syntax, Clippy, unit tests, release build, Inno compilation, sandboxed installer install/uninstall and ZIP extraction checks.
+- Verified GitHub release assets: setup EXE (4,426,196 bytes, SHA-256 `793b166ebae3baf1e4e1650fd41a4487f2e8e3fb0150e14a78d3d434c67bc99a`), portable ZIP (3,358,773 bytes, SHA-256 `3f72ce1a620e70857e8ffea7891d1b920a9f7063df7af791bef08144a6b171dc`), `SHA256SUMS.txt`.
+- Source tag intentionally differs from upstream stable tag pattern; release is explicitly marked pre-release.
