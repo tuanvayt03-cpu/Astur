@@ -13,6 +13,9 @@
 // flash and could briefly be tiled).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod i18n;
+use i18n::tr;
+
 use astur_config::{
     apply_updates, chord_label, color_to_hex, compile_keys, config_path, default_config_text,
     default_navbar_text, disk_root, format_chord, format_clock, format_date, format_hotkeys,
@@ -53,6 +56,7 @@ fn main() -> eframe::Result {
         config_path("ASTUR_CONFIG", "astur.conf"),
         config_path("ASTUR_NAVBAR", "navbar.conf"),
     ];
+    i18n::load(&paths[0].with_file_name("ui-language.txt"));
     // One Settings window at a time: two would interleave writes and undo
     // stacks over the same files. The OS drops the lock however this process
     // ends. No config folder yet (first run) or no lock file: skip the check.
@@ -425,19 +429,19 @@ impl Find {
             if self.hits > 1 {
                 ui.add_space(18.0);
             }
-            let title = RichText::new(format!("{title}  \u{203A}"))
+            let title = RichText::new(format!("{}  \u{203A}", tr(title)))
                 .size(20.0)
                 .family(semibold());
             if ui
                 .add(egui::Label::new(title).sense(Sense::click()))
-                .on_hover_text("Open this page")
+                .on_hover_text(tr("Open this page"))
                 .clicked()
             {
                 self.goto = Some(page);
             }
         }
         if let Some(s) = self.section.take() {
-            section_title(ui, s);
+            section_title(ui, tr(s));
         }
     }
 }
@@ -946,13 +950,33 @@ impl App {
         ui.add_space(14.0);
         ui.horizontal(|ui| {
             ui.add_space(6.0);
-            ui.label(RichText::new("Astur Settings").size(13.0).color(sub(ui)));
+            ui.label(RichText::new(tr("Astur Settings")).size(13.0).color(sub(ui)));
         });
-        ui.add_space(10.0);
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.label(tr("Language"));
+            let mut selected = i18n::language().to_string();
+            egui::ComboBox::from_id_salt("astur_ui_language")
+                .selected_text(if selected == "vi" { "Tiếng Việt" } else { "English" })
+                .width(125.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut selected, "en".to_owned(), "English");
+                    ui.selectable_value(&mut selected, "vi".to_owned(), "Tiếng Việt");
+                });
+            if selected != i18n::language() {
+                if let Err(error) = i18n::save(
+                    &self.paths[0].with_file_name("ui-language.txt"),
+                    &selected,
+                ) {
+                    self.error = Some(format!("Couldn't save display language: {error}"));
+                }
+            }
+        });
+        ui.add_space(8.0);
         let search = ui.add(
             egui::TextEdit::singleline(&mut self.query)
                 .id(search_id())
-                .hint_text("Find a setting  (Ctrl+F)")
+                .hint_text(tr("Find a setting  (Ctrl+F)"))
                 .desired_width(f32::INFINITY)
                 .margin(Margin::symmetric(10, 6)),
         );
@@ -966,11 +990,11 @@ impl App {
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
                         ui.add_space(12.0);
-                        ui.label(RichText::new(group).size(12.0).color(sub(ui)));
+                        ui.label(RichText::new(tr(group)).size(12.0).color(sub(ui)));
                     });
                 }
                 let selected = self.page == page && !self.find.on();
-                if nav_item(ui, selected, icon, title).clicked() {
+                if nav_item(ui, selected, icon, tr(title)).clicked() {
                     self.page = page;
                     self.query.clear();
                     // A key chip left listening would wake up on return.
@@ -988,7 +1012,7 @@ impl App {
             NAV.iter().find(|n| n.0 == self.page).map_or("", |n| n.1)
         };
         ui.horizontal(|ui| {
-            ui.label(RichText::new(title).size(28.0).family(semibold()));
+            ui.label(RichText::new(tr(title)).size(28.0).family(semibold()));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add_space(20.0);
                 let icons = has_icons(ui);
@@ -1060,8 +1084,8 @@ impl App {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(text).family(semibold()));
-                    keep = ui.button("Keep").clicked();
-                    back = ui.button("Undo").clicked();
+                    keep = ui.button(tr("Keep")).clicked();
+                    back = ui.button(tr("Undo")).clicked();
                 });
             });
         if keep {
@@ -1073,7 +1097,7 @@ impl App {
 
     /// The pill beside Undo: whether the last edit reached the files.
     fn status(&mut self, ui: &mut Ui) {
-        if self.read_error.is_some() && ui.button("Retry").clicked() {
+        if self.read_error.is_some() && ui.button(tr("Retry")).clicked() {
             self.reload();
         }
         let v = ui.visuals();
@@ -1094,7 +1118,7 @@ impl App {
             .corner_radius(CornerRadius::same(12))
             .inner_margin(Margin::symmetric(10, 4))
             .show(ui, |ui| {
-                ui.label(RichText::new(text).size(12.0).color(color))
+                ui.label(RichText::new(tr(text)).size(12.0).color(color))
             })
             .response
             .on_hover_text("Changes apply as you make them; Astur reloads them within a second. A list with a red row keeps its last good version in the file until the row is fixed.");
@@ -1115,8 +1139,8 @@ impl App {
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(text);
-                        if self.can_undo() && ui.link("Undo").clicked() {
+                        ui.label(tr(text));
+                        if self.can_undo() && ui.link(tr("Undo")).clicked() {
                             self.undo();
                         }
                     });
@@ -3216,7 +3240,7 @@ fn row_noted(
     notes: &[(Level, String)],
     add: impl FnOnce(&mut Ui),
 ) -> bool {
-    if !f.matches(&[label, desc, key]) {
+    if !f.matches(&[label, desc, key, tr(label), tr(desc)]) {
         return false;
     }
     f.hit(ui);
@@ -3246,9 +3270,9 @@ fn row_noted(
                             let line = ui.text_style_height(&egui::TextStyle::Body);
                             ui.add_space(((RESET_SLOT - line) / 2.0).max(0.0));
                         }
-                        ui.label(label);
+                        ui.label(tr(label));
                         if !desc.is_empty() {
-                            ui.label(RichText::new(desc).small().color(sub(ui)));
+                            ui.label(RichText::new(tr(desc)).small().color(sub(ui)));
                         }
                         note_labels(ui, notes);
                     },
@@ -4285,18 +4309,18 @@ fn section(ui: &mut Ui, f: &mut Find, title: &'static str) {
 
 fn section_title(ui: &mut Ui, title: &str) {
     ui.add_space(14.0);
-    ui.label(RichText::new(title).size(15.0).family(semibold()));
+    ui.label(RichText::new(tr(title)).size(15.0).family(semibold()));
     ui.add_space(2.0);
 }
 
 fn note(ui: &mut Ui, text: &str) {
     ui.add_space(4.0);
-    ui.label(RichText::new(text).color(sub(ui)));
+    ui.label(RichText::new(tr(text)).color(sub(ui)));
 }
 
 fn warn_note(ui: &mut Ui, text: &str) {
     ui.add_space(4.0);
-    ui.colored_label(ui.visuals().warn_fg_color, text);
+    ui.colored_label(ui.visuals().warn_fg_color, tr(text));
 }
 
 // ---- widgets -----------------------------------------------------------------
