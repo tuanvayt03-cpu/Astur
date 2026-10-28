@@ -17,11 +17,12 @@ if os.name != "nt":
 u32 = ctypes.WinDLL("user32", use_last_error=True)
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 WINFUNCTYPE = ctypes.WINFUNCTYPE
+ENUM_WINDOWS_CALLBACK = WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 LONG_PTR = ctypes.c_ssize_t
 class RECT(ctypes.Structure):
     _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
                 ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-u32.EnumWindows.argtypes = [WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM), wintypes.LPARAM]
+u32.EnumWindows.argtypes = [ENUM_WINDOWS_CALLBACK, wintypes.LPARAM]
 u32.EnumWindows.restype = wintypes.BOOL
 u32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
 u32.GetClassNameW.restype = ctypes.c_int
@@ -59,8 +60,7 @@ def process_name(pid):
 
 def snapshot():
     found = []
-    cb_type = WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    @cb_type
+    @ENUM_WINDOWS_CALLBACK
     def each(hwnd, _):
         if not u32.IsWindowVisible(hwnd):
             return True

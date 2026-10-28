@@ -1,38 +1,31 @@
-# Astur VI — Session Handoff / Recovery Point
+# Astur VI — Fresh Handoff / Recovery Checkpoint
 
-Updated: 2026-10-28, current lifecycle: **PARTIAL IMPLEMENTATION — NOT COMPLETE / NOT VERIFIED FOR RELEASE**.
+Date: 2026-10-28. State: **PARTIAL — CODE QA IN PROGRESS; NOT RELEASE READY**.
 
-## Baseline/ownership
-- User GitHub fork: https://github.com/tuanvayt03-cpu/Astur; upstream Page011/Astur main at `b60500f0155c1d817936b869989718299cbd3f14`.
-- Prior docs checkpoint: `9813d9269ce04b9d897958c18897a46a72189a0f` on branch `docs/vi-localization-plan` (PR #1).
-- Active feature branch: `feat/vi-notifications` at `D:\Project\Astur`. Feature implementation commit **`e42f92ad4eee656b34a9f0b66b9de371d4e66004`**, pushed to `origin/feat/vi-notifications`. Draft PR: https://github.com/tuanvayt03-cpu/Astur/pull/2 (base `docs/vi-localization-plan`). Parent contains prior docs checkpoint. The local installed Astur application was NOT altered, stopped, restarted or replaced.
-- One primary writer; no other repositories modified by this task.
+## Baseline
+- Upstream `Page011/Astur@b60500f` v2.4.0; owned fork https://github.com/tuanvayt03-cpu/Astur.
+- Active branch `feat/vi-notifications` at `D:\Project\Astur`, tracking `origin/feat/vi-notifications`. Parent planning branch `docs/vi-localization-plan`, PR #1.
+- Draft feature PR: https://github.com/tuanvayt03-cpu/Astur/pull/2. Last compiled Rust source commit `4efaf42`. Current working tree may have audit, diagnostic and workflow edits not yet committed; resolve Git status and final SHA before resuming.
+- Installed Astur on Windows user desktop was not touched. One primary writer; other repositories outside scope are untouched.
 
-## Implemented
-1. `crates/astur-settings/src/i18n.rs`: 320 EN→VI manually translated display strings, English fallback and locale preference `ui-language.txt` next to astur.conf; unit tests for language toggling, fallback and persistence.
-2. `crates/astur-settings/src/main.rs`: UI selector, locale loading, translated settings navigation and headers, row label/description, status, notes and some actions, plus bilingual search for translated rows.
-3. `scripts/localization_inventory.py`, `scripts/metadata_inventory.py`, `scripts/test_i18n_inventory.py`: static inventory and QA (not Rust tests).
-4. `scripts/capture_notification_windows.py`: read-only native HWND diagnostics probe. Tool execution against current desktop was blocked; NO notification root cause has been confirmed, NO notification behavior fixed.
-5. `docs/vi/IMPLEMENTATION_STATUS.md` and controller prompt/checkpoint documentation.
+## Delivered code
+1. Settings English/Vietnamese selection and separate persisted `ui-language.txt`, English fallback; no mutation of layout/window rules/action identifiers.
+2. `crates/astur-settings/src/i18n.rs` contains **367 unique translated strings**; direct Settings nav, sections, row metadata, various buttons, hover hints and drop-downs are translated at display boundaries. English and Vietnamese row query both searchable. Some first-party strings, native launcher/status/tray/installer remain English.
+3. `scripts/test_i18n_inventory.py` statically checks navigation/metadata coverage, duplicate keys and EN/VI placeholder preservation. `scripts/capture_notification_windows.py` reads Win32 metadata only (no messages/secrets); callback signature unified during audit.
+4. GitHub Actions CI enabled on fork; workflow includes Rust format/clippy/test/release and Python catalog/probe guards on next commit.
 
-## Fresh verification (final source state)
-- `python Astur\scripts\test_i18n_inventory.py` EXIT 0: 320 translations, 0 missing tracked navigation, section, metadata labels and descriptions (75 tracked metadata tuples).
-- `python -m py_compile` for four diagnostic/QA Python scripts EXIT 0.
-- `git -C Astur diff --check` EXIT 0 (CRLF advisory on Windows).
-- `where cargo` EXIT 1. Rustup installer from winget installed, but cargo/rustc not on accessible PATH; no Rust compilation.
-- GitHub CI: **NOT AVAILABLE**: after pushing feature commit, GET `/actions/workflows` returned `total_count=0`; `gh workflow enable ci.yml` returned HTTP 404 even though `.github/workflows/ci.yml` exists in the repository. Do not claim CI passed. Investigate fork workflow activation/permissions before relying on release checks.
-- UI/Windows notification E2E: UNVERIFIED.
+## Fresh evidence available
+- `python scripts/test_i18n_inventory.py`: exit 0; 367 translations, 75 literal metadata tuples, 0 missing in covered groups, no duplicate/placeholder defect.
+- `python -m py_compile` for diagnostic script and localization test: exit 0.
+- CI run https://github.com/tuanvayt03-cpu/Astur/actions/runs/40645288503 for Rust commit `4efaf42`: **Format PASS, Clippy PASS, Test PASS, Release build PASS** (overall success). Subsequent CI after audit/workflow changes must be inspected separately.
+- CodeLocal `where cargo` still fails though Rustup and Rust GNU MSI installed with winget. Use successful GitHub Actions Windows CI, not unavailable local Cargo.
+- Notification live capture unavailable; no evidence allowing a safe popup filter change. Window list observation contained no offending transient. **Notification bug remains uncorrected and unverified**.
 
-## Remaining defects/blockers
-- **Full localization remains incomplete**: only tracked Settings UI metadata and main navigation have guaranteed translations; native menus/installer and dynamic content need further work.
-- **Notification regression remains UNFIXED/ROOT CAUSE UNKNOWN**: do not blindly ignore apps/classes. No user messages or secrets are recorded in diagnostic probe.
-- **Build/installer unverified**: no release. Existing Astur remains the safe rollback.
-- Source check likely needs rustfmt and Rust compiler adjustments after toolchain availability.
+## Critical open work
+P0: Collect HWND/style/class/owner comparison for offending popup and normal Telegram/Zalo windows; add failing regression and narrow filter; test OS native toasts, screenshots, multi-monitor.
+P1: Complete native/secondary locale coverage, Windows visual snapshot and layout QA.
+P1: Build isolated installer, preserve Apache-2.0 notices, run install/update/rollback smoke without interfering with original running Astur.
+P1: Verify final CI check suite on final Rust HEAD, update PR #2 review state, keep main unchanged until all contracts PASS.
 
-## Next actions
-1. Verify branch and latest SHA, Git status/diff, configure Rust compiler and run cargo fmt/test/clippy/release build.
-2. Cover first-party UI remaining strings and visual QA at 100/125/150/200% DPI.
-3. With explicit safe OS reproduction, inspect HWND class/exstyle/owner/size and add precise failing popup test; fix and E2E test Telegram, Zalo, Windows toast, Snipping Tool.
-4. Review/test/fix → fresh machine evidence → commit/push new checkpoint → independent installer/release (only after PASS).
-
-Do not describe the current code as ready for installation. Fork GitHub branch is a recovery point, not a production release. After editing this handoff, inspect latest `git rev-parse HEAD` and `git status`; the exact last docs commit may supersede `e42f92a` but does not change implementation coverage. Never destroy or overwrite current user configuration.
+## Next session recovery
+Check `git status --short --branch`, `git rev-parse HEAD`, remote HEAD, PR #2 and latest GitHub run, read `docs/vi/SDD.md`, `CONTRACT.md` and `AUDIT_2026-10-28.md`. Run QA, fix failures without weakening tests, checkpoint commit and push without force. No release until notification and runtime E2E pass.

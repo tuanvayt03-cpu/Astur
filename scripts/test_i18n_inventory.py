@@ -9,7 +9,12 @@ ROOT = Path(__file__).resolve().parents[1]
 gui = (ROOT / 'crates/astur-settings/src/main.rs').read_text('utf-8')
 locale = (ROOT / 'crates/astur-settings/src/i18n.rs').read_text('utf-8')
 normalize=lambda s:s.replace(r'\u{2026}', '…')
-keys = set(re.findall(r'(?m)^\s*"([^"]+)"\s*=>\s*"', locale))
+entries = re.findall(r'(?m)^\s*"([^"]+)"\s*=>\s*"([^"]+)"', locale)
+keys = set(en for en, _ in entries)
+assert len(keys) == len(entries), "Duplicate translation keys generate unreachable Rust arms"
+placeholder = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+for english, vietnamese in entries:
+    assert sorted(placeholder.findall(english)) == sorted(placeholder.findall(vietnamese)), english
 nav_src = gui.split('const NAV:', 1)[1].split('const ICON_UNDO', 1)[0]
 nav_items = set(re.findall(r'\(Page::\w+,\s*"([^"]+)"', nav_src))
 nav_groups = set(re.findall(r'\(Page::\w+,\s*"[^"]+",\s*[^,]+,\s*"([^"]+)"', nav_src))

@@ -41,6 +41,12 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
 
+      - name: Translation catalog contract
+        run: python scripts/test_i18n_inventory.py
+
+      - name: Notification diagnostics syntax
+        run: python -m py_compile scripts/capture_notification_windows.py
+
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
