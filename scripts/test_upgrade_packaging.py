@@ -28,6 +28,8 @@ assert "FileCopy(Src, Dest, False)" in update
 assert "if FileExists(Dest) then Exit;" in update
 assert "Cannot back up the existing Astur installation" in update
 assert "UpgradeBackup" in update and "astur.conf" in update and "navbar.conf" in update
+assert "{userprofile}" not in update, "Inno Setup does not support this shell constant"
+assert "{%USERPROFILE}" in update, "Must use the official environment-variable constant"
 assert "THIRD_PARTY_NOTICES.md" in update and "LICENSE" in update
 assert "astur-settings.exe" in update
 assert "Smoke-test upgrade over upstream AppId" in workflow

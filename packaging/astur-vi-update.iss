@@ -77,7 +77,7 @@ begin
   Result := '';
   BackupDir := ExpandConstant('{localappdata}\Astur\UpgradeBackup\before-vi-update-2.4.0.1');
   InstallDir := ExpandConstant('{app}');
-  UserDir := ExpandConstant('{userprofile}\.astur');
+  UserDir := ExpandConstant('{%USERPROFILE}\.astur');
   if not BackupExisting(AddBackslash(InstallDir) + 'Astur.exe', BackupDir, 'Astur.exe') or
      not BackupExisting(AddBackslash(InstallDir) + 'astur-settings.exe', BackupDir, 'astur-settings.exe') or
      not BackupExisting(AddBackslash(UserDir) + 'astur.conf', BackupDir, 'astur.conf') or
