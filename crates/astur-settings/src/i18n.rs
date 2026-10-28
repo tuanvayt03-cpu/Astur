@@ -37,7 +37,7 @@ pub fn save(path: &Path, lang: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn tr<'a>(text: &'a str) -> &'a str {
+pub fn tr(text: &str) -> &str {
     if language() != "vi" {
         return text;
     }
@@ -364,9 +364,51 @@ pub fn tr<'a>(text: &'a str) -> &'a str {
         "Your own results in the launcher: an app, file, folder, web page or command, found by typing its name. Icon: auto uses the item's own; the menu beside it has more." => "Kết quả tự tạo trong trình mở ứng dụng gồm ứng dụng, tệp, thư mục, trang web hoặc lệnh; nhập tên để tìm. Biểu tượng tự động dùng biểu tượng của mục, có thêm tùy chọn trong menu kế bên.",
         "Follow the theme" => "Theo giao diện hệ thống",
         "YASB server address:" => "Địa chỉ máy chủ YASB:",
-        "None" => "Không có",
         "Icons" => "Biểu tượng",
-        "More options" => "Tùy chọn khác",
+        "Review" => "Xem lại",
+        "Change" => "Thay đổi",
+        "See every shortcut" => "Xem tất cả phím tắt",
+        "Every shortcut as plain text, for a note or a printout" => "Sao chép các phím tắt dạng văn bản để ghi chú hoặc in ra",
+        "Fix" => "Sửa",
+        "The menu section it is listed under" => "Nhóm menu chứa mục này",
+        "Copy address" => "Sao chép địa chỉ",
+        "1. Turn on YASB workspaces above." => "1. Bật tích hợp workspace YASB ở trên.",
+        "2. Merge the widget YAML into YASB's config.yaml. If a widgets section already exists, add astur_workspaces inside it." => "2. Ghép cấu hình YAML của widget vào config.yaml của YASB. Nếu đã có mục widgets, hãy thêm astur_workspaces vào đó.",
+        "Copy widget YAML" => "Sao chép YAML của widget",
+        "Copy example CSS" => "Sao chép CSS ví dụ",
+        "3. Add astur_workspaces to your bar's widgets.left list. In that bar's window_flags, set windows_app_bar: true to reserve space for YASB." => "3. Thêm astur_workspaces vào widgets.left của thanh. Trong window_flags, đặt windows_app_bar: true để dành chỗ cho YASB.",
+        "4. Reload YASB, then turn off Astur's own bar on the" => "4. Tải lại YASB rồi tắt thanh trạng thái riêng của Astur tại",
+        "page." => "trang này.",
+        "Every line in both config files is understood." => "Mọi dòng trong hai tệp cấu hình đều hợp lệ.",
+        "Remove line" => "Xóa dòng",
+        "Open in editor" => "Mở bằng trình chỉnh sửa",
+        "Open folder" => "Mở thư mục",
+        "Take the files as they are now (after editing them by hand)" => "Nạp lại tệp sau khi chỉnh sửa thủ công",
+        "Open log" => "Mở nhật ký",
+        "Edits astur.conf and navbar.conf. Changes apply as you make them and Astur reloads them live; Undo (Ctrl+Z) takes them back. Comments and hand edits in the files are kept." => "Chỉnh sửa astur.conf và navbar.conf. Thay đổi được áp dụng tức thì; nhấn Ctrl+Z để hoàn tác. Chú thích và nội dung chỉnh sửa thủ công được giữ nguyên.",
+        "Add a folder…" => "Thêm thư mục…",
+        "+ Add" => "+ Thêm",
+        "Pick an open window" => "Chọn cửa sổ đang mở",
+        "No app windows are open." => "Chưa có cửa sổ ứng dụng nào đang mở.",
+        "Choose one of the windows open right now" => "Chọn một trong các cửa sổ đang mở",
+        "Remove this workspace. Its name, key and wallpaper stay in the file for when you add it back." => "Xóa workspace này khỏi danh sách. Tên, phím tắt và hình nền vẫn được giữ trong cấu hình để khôi phục khi thêm lại.",
+        "+ Add workspace" => "+ Thêm workspace",
+        "Class only: * and ? are not read here" => "Chỉ chấp nhận tên lớp; không hỗ trợ ký tự * và ? tại đây",
+        "Match by the window's class or title too" => "So khớp thêm theo lớp hoặc tiêu đề cửa sổ",
+        "Open its windows on this workspace" => "Mở cửa sổ của ứng dụng trong workspace này",
+        "Open its windows on this monitor (counted from the left)" => "Mở cửa sổ trên màn hình này (đếm từ trái sang phải)",
+        "→" => "→",
+        "Take off the bar" => "Gỡ khỏi thanh trạng thái",
+        "Add to" => "Thêm vào",
+        "Add it to the format" => "Thêm vào định dạng",
+        "Label" => "Nhãn",
+        "Format" => "Định dạng",
+        "Type a command…" => "Nhập một lệnh…",
+        "The preset closest to your bar, and the keys that differ from it. Applying a preset first copies navbar.conf to navbar.conf.bak (once per session), and Undo takes it back." => "Cấu hình mẫu giống thanh trạng thái hiện tại nhất và các mục khác biệt. Khi áp dụng, Astur sao lưu navbar.conf thành navbar.conf.bak một lần trong phiên và có thể hoàn tác.",
+        "Reset to preset" => "Khôi phục mẫu",
+        "Type a font name" => "Nhập tên phông chữ",
+        "How Windows draws this font" => "Cách Windows hiển thị phông này",
+        "Browse…" => "Duyệt…",
         _ => text,
     }
 }
