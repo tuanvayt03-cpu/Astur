@@ -24775,31 +24775,47 @@ mod tests {
         let small_topmost_popup = WS_POPUP.0;
         let topmost = WS_EX_TOPMOST.0;
         assert!(transient_overlay_shape(
-            small_topmost_popup, topmost, &toast, &screen
+            small_topmost_popup,
+            topmost,
+            &toast,
+            &screen
         ));
 
         // Main Telegram / Zalo windows are ordinary overlapped windows.
         let normal_main = 0x00CF_0000; // WS_OVERLAPPEDWINDOW
-        assert!(!transient_overlay_shape(
-            normal_main, 0, &toast, &screen
-        ));
+        assert!(!transient_overlay_shape(normal_main, 0, &toast, &screen));
         // Do not steal legitimate dialogs, windowed apps or user-facing
         // topmost applications merely because they are small or topmost.
         assert!(!transient_overlay_shape(
-            small_topmost_popup, 0, &toast, &screen
+            small_topmost_popup,
+            0,
+            &toast,
+            &screen
         ));
         assert!(!transient_overlay_shape(
-            small_topmost_popup | WS_CAPTION.0, topmost, &toast, &screen
+            small_topmost_popup | WS_CAPTION.0,
+            topmost,
+            &toast,
+            &screen
         ));
         assert!(!transient_overlay_shape(
-            small_topmost_popup | WS_THICKFRAME.0, topmost, &toast, &screen
+            small_topmost_popup | WS_THICKFRAME.0,
+            topmost,
+            &toast,
+            &screen
         ));
         assert!(!transient_overlay_shape(
-            small_topmost_popup, topmost | WS_EX_APPWINDOW.0, &toast, &screen
+            small_topmost_popup,
+            topmost | WS_EX_APPWINDOW.0,
+            &toast,
+            &screen
         ));
         // Borderless always-on-top fullscreen apps are NOT transient toasts.
         assert!(!transient_overlay_shape(
-            small_topmost_popup, topmost, &screen, &screen
+            small_topmost_popup,
+            topmost,
+            &screen,
+            &screen
         ));
         let tiny_monitor = RECT {
             left: 0,
@@ -24808,7 +24824,10 @@ mod tests {
             bottom: 300,
         };
         assert!(!transient_overlay_shape(
-            small_topmost_popup, topmost, &toast, &tiny_monitor
+            small_topmost_popup,
+            topmost,
+            &toast,
+            &tiny_monitor
         ));
     }
 
