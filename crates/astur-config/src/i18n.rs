@@ -617,7 +617,10 @@ mod tests {
     #[test]
     fn missing_locale_pref_defaults_to_vietnamese() {
         let _lock = TEST_LOCK.lock().unwrap();
-        let path = std::env::temp_dir().join(format!("missing-astur-vi-locale-{}.txt", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "missing-astur-vi-locale-{}.txt",
+            std::process::id()
+        ));
         let _ = std::fs::remove_file(&path);
         set_language("en");
         load(&path);

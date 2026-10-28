@@ -6,6 +6,9 @@ on:
     paths:
       - ".github/workflows/upgrade-release.yml"
       - "packaging/astur-vi-update.iss"
+      - "crates/**"
+      - "scripts/test_i18n_inventory.py"
+      - "scripts/test_upgrade_packaging.py"
   workflow_dispatch:
 
 permissions:

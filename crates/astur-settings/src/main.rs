@@ -3167,8 +3167,12 @@ impl App {
         }
         card(ui, |ui| {
             ui.label(
-                RichText::new(format!("{} {}", tr("Astur Settings"), env!("CARGO_PKG_VERSION")))
-                    .family(semibold()),
+                RichText::new(format!(
+                    "{} {}",
+                    tr("Astur Settings"),
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .family(semibold()),
             );
             ui.label(tr("Edits astur.conf and navbar.conf. Changes apply as you make them and Astur reloads them live; Undo (Ctrl+Z) takes them back. Comments and hand edits in the files are kept."));
             ui.add_space(6.0);
@@ -6776,7 +6780,11 @@ fn chip(ui: &mut Ui, src: Src, w: &str, selected: bool, hidden: bool) -> egui::R
     } else {
         desc
     };
-    resp.on_hover_text(format!("{} {}", tr(tip), tr("Drag to move it; click for its settings.")))
+    resp.on_hover_text(format!(
+        "{} {}",
+        tr(tip),
+        tr("Drag to move it; click for its settings.")
+    ))
 }
 
 /// The three zones side by side, as drop targets holding their widgets'
@@ -8577,7 +8585,9 @@ fn font_row(ui: &mut Ui, f: &mut Find, meta: Meta, v: &mut String, d: &str) {
             }
             if missing {
                 ui.colored_label(ui.visuals().warn_fg_color, tr("Not installed"))
-                    .on_hover_text(tr("No installed font has this name, so Windows draws a stand-in font."));
+                    .on_hover_text(tr(
+                        "No installed font has this name, so Windows draws a stand-in font.",
+                    ));
             }
             font_preview(ui, id, v);
         });

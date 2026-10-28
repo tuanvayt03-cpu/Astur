@@ -5081,8 +5081,7 @@ fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
     }
     // Native toasts frequently appear at a corner of the monitor. Accept a
     // small margin for virtual desktop DPI and Windows shadow decorations.
-    let at_horizontal_edge =
-        rect.left <= monitor.left + 96 || rect.right >= monitor.right - 96;
+    let at_horizontal_edge = rect.left <= monitor.left + 96 || rect.right >= monitor.right - 96;
     let at_vertical_edge = rect.top <= monitor.top + 96 || rect.bottom >= monitor.bottom - 96;
     let anchored = at_horizontal_edge && at_vertical_edge;
     let popup = style & WS_POPUP.0 != 0;
@@ -5093,7 +5092,8 @@ fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
     // WS_POPUP. Compact layered overlays may also appear away from screen
     // corners (e.g. messenger banners near a toolbar).
     (popup && (topmost || anchored))
-        || (layered && (topmost || anchored || (width * 3 <= screen_width && height * 4 <= screen_height)))
+        || (layered
+            && (topmost || anchored || (width * 3 <= screen_width && height * 4 <= screen_height)))
 }
 
 /// Never ShowWindow/SetWindowPos here: notification display, click, animation
@@ -24819,7 +24819,12 @@ mod tests {
             right: 900,
             bottom: 580,
         };
-        assert!(!transient_overlay_shape(small_topmost_popup, 0, &interior, &screen));
+        assert!(!transient_overlay_shape(
+            small_topmost_popup,
+            0,
+            &interior,
+            &screen
+        ));
         // Layered and compact messenger popups are not always topmost.
         assert!(transient_overlay_shape(
             small_topmost_popup,
