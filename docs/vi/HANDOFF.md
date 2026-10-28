@@ -5,7 +5,7 @@ Updated: 2026-10-28, current lifecycle: **PARTIAL IMPLEMENTATION — NOT COMPLET
 ## Baseline/ownership
 - User GitHub fork: https://github.com/tuanvayt03-cpu/Astur; upstream Page011/Astur main at `b60500f0155c1d817936b869989718299cbd3f14`.
 - Prior docs checkpoint: `9813d9269ce04b9d897958c18897a46a72189a0f` on branch `docs/vi-localization-plan` (PR #1).
-- Active feature branch: `feat/vi-notifications` at `D:\Project\Astur`. Parent contains prior docs checkpoint. The local installed Astur application was NOT altered, stopped, restarted or replaced.
+- Active feature branch: `feat/vi-notifications` at `D:\Project\Astur`. Feature implementation commit **`e42f92ad4eee656b34a9f0b66b9de371d4e66004`**, pushed to `origin/feat/vi-notifications`. Draft PR: https://github.com/tuanvayt03-cpu/Astur/pull/2 (base `docs/vi-localization-plan`). Parent contains prior docs checkpoint. The local installed Astur application was NOT altered, stopped, restarted or replaced.
 - One primary writer; no other repositories modified by this task.
 
 ## Implemented
@@ -20,7 +20,7 @@ Updated: 2026-10-28, current lifecycle: **PARTIAL IMPLEMENTATION — NOT COMPLET
 - `python -m py_compile` for four diagnostic/QA Python scripts EXIT 0.
 - `git -C Astur diff --check` EXIT 0 (CRLF advisory on Windows).
 - `where cargo` EXIT 1. Rustup installer from winget installed, but cargo/rustc not on accessible PATH; no Rust compilation.
-- GitHub CI: no workflow registered for fork at planning checkpoint; new feature-branch status must be refreshed after push.
+- GitHub CI: **NOT AVAILABLE**: after pushing feature commit, GET `/actions/workflows` returned `total_count=0`; `gh workflow enable ci.yml` returned HTTP 404 even though `.github/workflows/ci.yml` exists in the repository. Do not claim CI passed. Investigate fork workflow activation/permissions before relying on release checks.
 - UI/Windows notification E2E: UNVERIFIED.
 
 ## Remaining defects/blockers
@@ -35,4 +35,4 @@ Updated: 2026-10-28, current lifecycle: **PARTIAL IMPLEMENTATION — NOT COMPLET
 3. With explicit safe OS reproduction, inspect HWND class/exstyle/owner/size and add precise failing popup test; fix and E2E test Telegram, Zalo, Windows toast, Snipping Tool.
 4. Review/test/fix → fresh machine evidence → commit/push new checkpoint → independent installer/release (only after PASS).
 
-Do not describe the current code as ready for installation. Fork GitHub branch is a recovery point, not a production release. Never destroy or overwrite current user configuration.
+Do not describe the current code as ready for installation. Fork GitHub branch is a recovery point, not a production release. After editing this handoff, inspect latest `git rev-parse HEAD` and `git status`; the exact last docs commit may supersede `e42f92a` but does not change implementation coverage. Never destroy or overwrite current user configuration.
