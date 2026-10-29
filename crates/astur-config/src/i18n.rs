@@ -87,6 +87,7 @@ pub fn tr(text: &str) -> &str {
         "Window moves" => "Di chuyển cửa sổ",
         "Workspace mark width" => "Độ rộng dấu không gian làm việc",
         "Your own style" => "Kiểu tùy chỉnh",
+        "Same as default" => "Giống bố cục mặc định",
         "Spiral" => "Xoắn ốc",
         "Main + side" => "Chính và phụ",
         "One at a time" => "Từng cửa sổ",

@@ -79,6 +79,7 @@ tips = {
 owned_dynamic = {
     "Tile windows when Astur starts",
     "Space between windows",
+    "Same as default",
     "Hold {key}, the Astur key, for every shortcut below.",
     "Off: Astur starts with tiling off, so every window floats as on plain Windows until you press {key}{toggle}. Takes effect the next time Astur starts.",
     "App launcher ({key}Space)",
@@ -161,6 +162,7 @@ missing = {
     "tips": sorted(tips - keys),
     "dynamic_templates": sorted(owned_dynamic - keys),
     "format_labels": sorted(format_labels - keys),
+    "monitor_layout_choice": sorted({"Same as default"} - keys),
     "bar_preset_labels": sorted({name for name, _ in bar_presets} - keys),
     "bar_preset_descriptions": sorted({desc for _, desc in bar_presets} - keys),
     "layout_labels_and_help": sorted(layout_text - keys),

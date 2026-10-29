@@ -1,5 +1,10 @@
 # Astur VI — Handoff after in-place updater V2 (2026-10-29)
 
+## Final screenshot-label audit — Preview 2.4.0.5 (2026-10-29)
+
+- The Windows-rendered 2.4.0.3 image artifact `12887243730` was visually reviewed for all 14 main Settings pages. Most previously untranslated labels, descriptions and presets are now in Vietnamese. One clear first-party remainder was `Same as default` in per-monitor Layout selectors; added `Same as default` → `Giống bố cục mặc định`, plus an inventory regression guard. Catalog is now **819 distinct mappings**. Brand names, paths, installed app names, shortcut tokens and user data intentionally remain unchanged.
+- Preview 2.4.0.5 is independently versioned to avoid touching 2.4.0.3 or 2.4.0.4, with the same AppId and original backup path. Full Rust CI, bilingual screenshots, updater build/smoke and real popup E2E are not yet verified for this SHA until their fresh results are examined.
+
 ## Post-notification screenshot fix — Preview 2.4.0.4 (2026-10-29)
 
 - Checkpoint `7db101f` (818 unique translations) was pushed with a normalized-string duplicate gate. Windows CI `40851884525` PASS (format, Clippy, unit tests, release build). Preview 2.4.0.3 updater workflow `40851884551` was running when 2.4.0.4 work began; do not overwrite any published tag.

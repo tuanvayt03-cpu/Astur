@@ -1,9 +1,9 @@
-# Astur VI Update 2.4.0.4 — experimental in-place upgrade
+# Astur VI Update 2.4.0.5 — experimental in-place upgrade
 
 **This installer updates the existing English Astur instead of installing a second copy.** It preserves the upstream installer GUID, remembers the existing installation folder and startup shortcut choice, and leaves normal window layout/configuration files in place.
 
 ## Changes
-- Expanded English/Vietnamese translation catalog to 818 mapped first-party strings across 14 Settings pages, native launcher/power menus, status-bar labels, key help, validation/search hints and dynamic messages. Vietnamese is the default when no language preference exists; original English remains available in Settings. Source-level coverage does not guarantee pixel-level 100% translation.
+- Expanded English/Vietnamese translation catalog to 819 mapped first-party strings across 14 Settings pages, native launcher/power menus, status-bar labels, key help, validation/search hints and dynamic messages. Vietnamese is the default when no language preference exists; original English remains available in Settings. Source-level coverage does not guarantee pixel-level 100% translation.
 - Additional translations for Settings choices, help, preset descriptions, advanced rule controls, and the manager's first-party tray and power menu items.
 - Broadened notification-overlay classification to include compact captionless layered windows and borderless popups at a screen corner **or top/bottom centre**, even without `TOPMOST` or `LAYERED`. This skips **tiling and tab adoption only**; it does not block, mute, close, move, or suppress notifications. Regression checks distinguish small banners from large main windows and captioned dialogs.
 - Original executable, settings executable, `astur.conf` and `navbar.conf` are backed up on first upgrade under `%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.1`.

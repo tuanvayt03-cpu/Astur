@@ -17,8 +17,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  UPGRADE_TAG: astur-vi-update-2.4.0.4
-  UPGRADE_VERSION: 2.4.0.4
+  UPGRADE_TAG: astur-vi-update-2.4.0.5
+  UPGRADE_VERSION: 2.4.0.5
 
 jobs:
   upgrade:
@@ -68,7 +68,7 @@ jobs:
       - name: Upload bilingual Settings screenshots for review
         uses: actions/upload-artifact@v6
         with:
-          name: astur-settings-en-vi-2.4.0.4
+          name: astur-settings-en-vi-2.4.0.5
           path: dist/ui-renders/*.png
           if-no-files-found: error
 
@@ -167,6 +167,18 @@ jobs:
           "$hash *$([System.IO.Path]::GetFileName($installer))" |
             Set-Content 'dist/upgrade/SHA256SUMS.txt' -Encoding utf8
           Get-Content 'dist/upgrade/SHA256SUMS.txt'
+
+      # Preserve a downloadable installer even if GitHub Release publication
+      # is forbidden by repository/app token policy (HTTP 403).
+      # Do not turn a failed publish into a green release gate.
+      - name: Upload verified installer and checksum
+        uses: actions/upload-artifact@v6
+        with:
+          name: astur-vi-updater-${{ env.UPGRADE_VERSION }}
+          path: |
+            dist/upgrade/Astur-VI-Update-Setup-*.exe
+            dist/upgrade/SHA256SUMS.txt
+          if-no-files-found: error
 
       - name: Publish preview update
         shell: pwsh
