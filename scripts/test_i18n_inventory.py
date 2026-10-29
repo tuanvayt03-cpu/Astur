@@ -23,7 +23,7 @@ def norm(value: str) -> str:
     )
 
 
-entries = re.findall(r'(?m)^\s*"((?:[^"\\]|\\.)*)"\s*=>\s*"((?:[^"\\]|\\.)*)"', LOCALE)
+entries = re.findall(r'(?ms)^\s*"((?:[^"\\]|\\.)*)"\s*=>\s*"((?:[^"\\]|\\.)*)"', LOCALE)
 keys = {norm(english) for english, _ in entries}
 assert len(keys) == len(entries), "Duplicate translation keys generate unreachable Rust arms"
 
@@ -43,11 +43,12 @@ trf_missing = sorted(trf_literals - keys)
 
 # These helpers are render boundaries: their literal arguments are owned UI,
 # while the values in the fields remain user data or stable config values.
-settings_source = GUI.split("#[cfg(test)]", 1)[0]
+settings_source = GUI.rsplit("\n#[cfg(test)]\nmod tests {", 1)[0]
+assert "fn home(&mut self" in settings_source and "fn row_noted(" in settings_source, "Settings source scan truncated before UI helpers"
 sections = literals(r'\bsection\(\s*ui\s*,\s*f\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)', settings_source)
 notes = literals(r'\b(?:note|warn_note)\(\s*ui\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)', settings_source)
 meta = re.findall(
-    r'(?s)\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*,\s*"([a-z][a-z0-9_, ]*)"\s*\)',
+    r'(?s)\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*,\s*"([a-z][a-z0-9_, ]*)"\s*,?\s*\)',
     settings_source,
 )
 meta_labels = {norm(label) for label, _, _ in meta}
@@ -128,6 +129,19 @@ format_labels = {
     "Every hour",
 }
 
+# Audit dynamic labels actually shown in offscreen screenshots. These boundaries
+# used to escape the old prefix scan, despite appearing in native controls.
+bar_presets = re.findall(
+    r'(?s)\blabel:\s*"([^"]+)"\s*,\s*blurb:\s*"([^"]+)"', CONFIG
+)
+layout_region = GUI.split("fn layout_label(", 1)[1].split("/// Themeable", 1)[0]
+layout_text = literals(r'=>\s*(?:\{\s*)?"((?:[^"\\]|\\.)*)"', layout_region)
+desc_region = CONFIG.split("pub fn description(self)", 1)[1].split("pub fn bits(self)", 1)[0]
+key_descriptions = literals(
+    r'MainKey::\w+\s*=>\s*\{\s*"((?:[^"\\]|\\.)*)"', desc_region
+)
+assert len(bar_presets) >= 9 and len(layout_text) >= 12 and len(key_descriptions) == 5
+
 missing = {
     "static_tr": sorted(static_tr_missing),
     "trf_literals": sorted(trf_missing),
@@ -138,6 +152,10 @@ missing = {
     "tips": sorted(tips - keys),
     "dynamic_templates": sorted(owned_dynamic - keys),
     "format_labels": sorted(format_labels - keys),
+    "bar_preset_labels": sorted({name for name, _ in bar_presets} - keys),
+    "bar_preset_descriptions": sorted({desc for _, desc in bar_presets} - keys),
+    "layout_labels_and_help": sorted(layout_text - keys),
+    "main_key_descriptions": sorted(key_descriptions - keys),
 }
 
 nav_region = settings_source.split("const NAV:", 1)[1].split("const ICON_UNDO", 1)[0]
@@ -146,7 +164,7 @@ nav_groups = set(re.findall(r'\(Page::\w+,\s*"[^"]+",\s*[^,]+,\s*"([^"]*)"', nav
 navigation = nav_items | (nav_groups - {""}) | {"Astur Settings", "Language", "Find a setting  (Ctrl+F)"}
 
 for name, values in missing.items():
-    print(f"{name}: missing {len(values)}; {values[:8]}")
+    print(f"{name}: missing {len(values)}; {values}")
 
 assert not any(missing.values()), "owned first-party strings are absent from the catalog"
 assert len(nav_items) == 14, f"expected 14 Settings pages, found {len(nav_items)}"

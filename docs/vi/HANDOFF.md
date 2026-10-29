@@ -1,5 +1,12 @@
 # Astur VI — Handoff after in-place updater V2 (2026-10-29)
 
+## Post-render visual audit — Preview 2.4.0.3 (2026-10-29)
+
+- `2a5b83a` passed Windows CI `40848088030` (fmt, Clippy, full tests, release build). Preview 2.4.0.2 workflow `40848088119` passed tests, bilingual render, upgrade-over-upstream smoke, and release publication; **do not overwrite this immutable tag**.
+- Visually inspected GitHub screenshot artifact `12886910390` (78 EN/VI PNG, 14 main Settings pages and expanded views). It revealed English labels/descriptions still visible in Vietnamese mode, e.g. `Astur key`, `Caps Lock` help, `Status bar style`, `Your own style`, `Outer gap`, `Inner gap`, `Installed apps`, `Open windows`, and bar preset descriptions.
+- Root cause of false PASS in the old 749-entry gate: `GUI.split("#[cfg(test)]", 1)[0]` truncated at a test-only `seen` field near line 411, before the full Settings page source; metadata parser also missed trailing commas. Changed scan to stop at the real `mod tests` boundary and parse trailing commas. Gate exposed 40 missing Meta labels plus 3 descriptions, now translated; added 9 bar preset blurbs, 6 layout help texts, 5 multi-line MainKey descriptions, and dynamic display labels. Locale catalog is now **822 entries**, including these screenshot-proven fixes. Static gate also checks preset and key description inventory.
+- Preview 2.4.0.3 is the intended next immutable release with full Windows CI and bilingual render verification required. No local installation or user settings were modified. Real Zalo notification E2E is **still unverified**: no live toast HWND appeared during two read-only probes; keep popups allowed and do not blacklist the entire app.
+
 ## Controller continuation — Preview 2.4.0.2 (2026-10-29)
 
 - Baseline at start: clean `feat/vi-full-update-popup-v2` at `c1aa69d`, tracking `origin/feat/vi-full-update-popup-v2`. The existing published 2.4.0.1 preview is immutable and must never be overwritten.
