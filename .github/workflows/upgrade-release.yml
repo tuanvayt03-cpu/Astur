@@ -17,8 +17,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  UPGRADE_TAG: astur-vi-update-2.4.0.1
-  UPGRADE_VERSION: 2.4.0.1
+  UPGRADE_TAG: astur-vi-update-2.4.0.2
+  UPGRADE_VERSION: 2.4.0.2
 
 jobs:
   upgrade:
@@ -50,6 +50,27 @@ jobs:
 
       - name: Unit tests
         run: cargo test --workspace
+
+      - name: Render Vietnamese and English Settings offscreen
+        run: cargo test -p astur-settings -- --ignored render_pages
+
+      - name: Check and stage bilingual Settings renders
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path ([System.IO.Path]::GetTempPath()) 'astur-settings-render'
+          $vi = @(Get-ChildItem -Path $source -Filter '*-vi.png' -File)
+          $en = @(Get-ChildItem -Path $source -Filter '*-en.png' -File)
+          if ($vi.Count -lt 14 -or $en.Count -lt 14) { throw "Missing Settings renders: VI=$($vi.Count), EN=$($en.Count)" }
+          New-Item -ItemType Directory -Path 'dist/ui-renders' -Force | Out-Null
+          Copy-Item -Path (Join-Path $source '*.png') -Destination 'dist/ui-renders'
+
+      - name: Upload bilingual Settings screenshots for review
+        uses: actions/upload-artifact@v6
+        with:
+          name: astur-settings-en-vi-2.4.0.2
+          path: dist/ui-renders/*.png
+          if-no-files-found: error
 
       - name: Build Windows x64 release
         run: cargo build --release --workspace

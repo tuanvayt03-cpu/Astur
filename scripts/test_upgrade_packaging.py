@@ -36,4 +36,12 @@ assert "Smoke-test upgrade over upstream AppId" in workflow
 assert "--prerelease" in workflow and "SHA256SUMS.txt" in workflow
 assert "gh release create" in workflow
 assert "on:" in workflow and "workflow_dispatch:" in workflow
-print("Astur VI in-place upgrade identity, backup, rollback, smoke contract: PASS")
+version_match=re.search(r'(?m)^#define AppVersion "([^"]+)"$', update)
+assert version_match, "Installer version must be defined"
+version=version_match.group(1)
+workflow_version=re.search(r"(?m)^  UPGRADE_VERSION: (.+)$",workflow)
+workflow_tag=re.search(r"(?m)^  UPGRADE_TAG: (.+)$",workflow)
+assert workflow_version and workflow_version.group(1)==version, "Workflow/installer version mismatch"
+assert workflow_tag and workflow_tag.group(1)==f"astur-vi-update-{version}", "Release tag/version mismatch"
+assert "before-vi-update-2.4.0.1" in update and "before-vi-update-2.4.0.1" in workflow, "Keep the first original backup across upgrades"
+print("Astur VI in-place upgrade identity, version, backup, rollback, smoke contract: PASS")

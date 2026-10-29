@@ -1,8 +1,8 @@
 ; Astur VI in-place update. SAME AppId as upstream to upgrade existing Astur,
 ; not create a second product. Backs up current binaries and user config first.
-; Version 2.4.0.1 is a pre-release, not the official upstream Astur release.
+; Version 2.4.0.2 is a pre-release, not the official upstream Astur release.
 #define AppName "Astur"
-#define AppVersion "2.4.0.1"
+#define AppVersion "2.4.0.2"
 #define AppExe "Astur.exe"
 
 [Setup]

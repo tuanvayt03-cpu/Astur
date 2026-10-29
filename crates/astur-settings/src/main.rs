@@ -10740,12 +10740,22 @@ key_close_window = F4
     /// Renders the pages offscreen to PNGs, since Settings must not be
     /// launched on a working desktop to check a visual change:
     ///   cargo test -p astur-settings -- --ignored render_pages
-    /// writes %TEMP%\astur-settings-render\*.png. A plain CPU rasterizer of
+    /// writes %TEMP%\astur-settings-render\*-vi.png and *-en.png.
+    /// A plain CPU rasterizer of
     /// egui's meshes with nearest-texel sampling, so text is a little rougher
     /// than on screen; layout, spacing and colours are exact.
     #[test]
     #[ignore]
     fn render_pages() {
+        let previous = i18n::language();
+        for locale in ["vi", "en"] {
+            i18n::set_language(locale);
+            render_pages_locale(locale);
+        }
+        i18n::set_language(previous);
+    }
+
+    fn render_pages_locale(locale: &str) {
         use std::collections::HashMap;
         let dir = std::env::temp_dir().join("astur-settings-render");
         std::fs::create_dir_all(&dir).unwrap();
@@ -10888,7 +10898,7 @@ key_close_window = F4
             let out = last.unwrap();
             let prims = ctx.tessellate(out.shapes, out.pixels_per_point);
             let rgba = raster(&prims, &tex, w, h);
-            png(&dir.join(format!("{name}.png")), w, h, &rgba);
+            png(&dir.join(format!("{name}-{locale}.png")), w, h, &rgba);
         }
     }
 

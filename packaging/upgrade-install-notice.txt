@@ -1,4 +1,4 @@
-ASTUR VI UPDATE 2.4.0.1 (PREVIEW)
+ASTUR VI UPDATE 2.4.0.2 (PREVIEW)
 
 This installer UPDATES the existing Astur English installation IN PLACE.
 It is an experimental fork, NOT an official stable upstream release.
@@ -21,7 +21,9 @@ The backup is available if you need your previous binary/settings.
 
 WHAT IS NEW
 Vietnamese Settings is the default for users without a locale preference.
-English can be selected inside Settings. Core tray/menu strings are translated.
+The 749-entry catalog now covers all 14 Settings pages and more dynamic help,
+validation, launcher and native menu text; English remains selectable.
+Source-level coverage is not proof of every on-screen string.
 Popup overlays are detected with a wider set of styles without suppressing
 or hiding notifications. These app-specific fixes still require live E2E.
 
