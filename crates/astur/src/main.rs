@@ -24856,7 +24856,12 @@ mod tests {
             bottom: 1060,
         };
         for banner in [top_center_banner, bottom_center_banner] {
-            assert!(transient_overlay_shape(small_topmost_popup, 0, &banner, &screen));
+            assert!(transient_overlay_shape(
+                small_topmost_popup,
+                0,
+                &banner,
+                &screen
+            ));
             assert!(!transient_overlay_shape(normal_main, 0, &banner, &screen));
             assert!(!transient_overlay_shape(
                 small_topmost_popup | WS_CAPTION.0,
