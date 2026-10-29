@@ -1,5 +1,13 @@
 # Astur VI — Handoff after in-place updater V2 (2026-10-29)
 
+## Verified 2.4.0.6 release and terminal handoff — 2026-10-29
+
+- **Shipped code**: `e0b4c9c6eab100e62d2c34df6aa37826e5946af4` (parent `536dd6d`), branch `feat/vi-full-update-popup-v2`. General Windows CI run `40859877563` **SUCCESS** (Rust format, Clippy, unit tests, release build). In-place updater workflow `40859877553` **SUCCESS** including bilingual renders, Inno packaging, isolated upgrade preserving same AppId/custom install directory/user config/first rollback backup, checksum artifact, and Release publication.
+- **Release**: https://github.com/tuanvayt03-cpu/Astur/releases/tag/astur-vi-update-2.4.0.6 . Installer `Astur-VI-Update-Setup-2.4.0.6.exe` and `SHA256SUMS.txt` verified via GitHub API. Existing 2.4.0.5 tag preserved; never overwrite immutable tags.
+- **Scope**: only changed the generic compact-edge notification classification and its regression tests, plus release metadata. The accepted Vietnamese 819-key catalog is unchanged and its inventory test passed. Code source, tests, new Windows CI/release pipeline PASS. No user config, installed binaries, active workspace, desktop tiling or background process was changed.
+- **Still UNVERIFIED**: user's actual Zalo/messenger notification HWND wasn't present in 60-second read-only Win32 probe; screenshot alone does not expose window flags, and connected session did not have `Astur.exe` running (only `astur-settings.exe`). The observable E2E acceptance remains: launch/verify exact 2.4.0.6 Astur manager on the user's session, receive an actual notification, and confirm popup appears above tiled windows without changing window count/geometry/tab grouping. If it fails, capture sanitized HWND style/class/owner/rect using `scripts/capture_notification_windows.py`, then diagnose actual bytes before further classification expansion. Do not blanket-block Zalo nor suppress native notification.
+- **Recovery**: current source release SHA above, follow-on docs checkpoint may be ahead of it. Git status and diff reviewed before committing, remote push and fresh status must be checked for next handoff.
+
 ## Notification pop-up regression — preview 2.4.0.6 (2026-10-29)
 
 - Follow-on CI note: source commit `536dd6d` reached Windows CI, but the preview job `40859651596` failed Rustfmt on one multiline `if` condition. Adjusted formatting to exactly match the Windows runner diff. The initial job is **not** a PASS; require a fresh CI run after this formatting-only checkpoint.
