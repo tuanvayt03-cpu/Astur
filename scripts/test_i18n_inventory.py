@@ -27,6 +27,15 @@ entries = re.findall(r'(?ms)^\s*"((?:[^"\\]|\\.)*)"\s*=>\s*"((?:[^"\\]|\\.)*)"',
 keys = {norm(english) for english, _ in entries}
 assert len(keys) == len(entries), "Duplicate translation keys generate unreachable Rust arms"
 
+# Rust folds a backslash-newline (plus indentation) into one literal. Both
+# spellings match at runtime, so catch collisions before Clippy rejects the
+# unreachable second arm. Keep the original catalog keys unchanged.
+def runtime_key(key: str) -> str:
+    return re.sub(r"\\\r?\n[ \t]*", "", norm(key)).replace(r'\"', '"')
+
+runtime_keys = {runtime_key(english) for english, _ in entries}
+assert len(runtime_keys) == len(entries), "Rust-normalized duplicate keys (line continuations or escaped quotes)"
+
 placeholder = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 for english, vietnamese in entries:
     assert sorted(placeholder.findall(english)) == sorted(placeholder.findall(vietnamese)), english
