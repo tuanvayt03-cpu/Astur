@@ -5057,8 +5057,7 @@ fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
     // Real resizable/main app windows are never notification surfaces.
     // A tiny edge banner can carry WS_CAPTION or WS_SYSMENU even when its
     // custom-drawn frame shows no caption; evaluate those bits after geometry.
-    if style & (WS_THICKFRAME.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0 | WS_CHILD.0)
-        != 0
+    if style & (WS_THICKFRAME.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0 | WS_CHILD.0) != 0
         || exstyle & WS_EX_APPWINDOW.0 != 0
     {
         return false;

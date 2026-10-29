@@ -2,6 +2,8 @@
 
 ## Notification pop-up regression — preview 2.4.0.6 (2026-10-29)
 
+- Follow-on CI note: source commit `536dd6d` reached Windows CI, but the preview job `40859651596` failed Rustfmt on one multiline `if` condition. Adjusted formatting to exactly match the Windows runner diff. The initial job is **not** a PASS; require a fresh CI run after this formatting-only checkpoint.
+
 - User reports the top-edge messaging notification still affects Astur's tiling after prior preview; the accepted Vietnamese UI requires no further translation work. Baseline `6ac8090`, clean `feat/vi-full-update-popup-v2` at start.
 - The 2.4.0.5 filter only exempted small surfaces carrying `WS_POPUP` or `WS_EX_LAYERED` and rejected any `WS_CAPTION` or `WS_SYSMENU`. That permits certain custom-drawn short top-edge banners to be adopted. A **conservative hypothesis**, not yet confirmed against the originating notification HWND; screenshot alone contains no Win32 style metadata.
 - New detection accepts only unusually shallow/compact rectangles flush within 24 px of a monitor top/bottom edge and within the monitor horizontal span. Caption/system-menu windows require an extra TOPMOST/LAYERED signal, while child, resizable/minimize/maximize and APPWINDOW windows remain rejected as overlays. The routine never mutates the notification, only excludes its handle from Astur's tiling/tab registry.
