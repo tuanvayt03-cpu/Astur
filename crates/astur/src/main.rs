@@ -5084,16 +5084,18 @@ fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
     let at_horizontal_edge = rect.left <= monitor.left + 96 || rect.right >= monitor.right - 96;
     let at_vertical_edge = rect.top <= monitor.top + 96 || rect.bottom >= monitor.bottom - 96;
     let anchored = at_horizontal_edge && at_vertical_edge;
+    let compact_banner = width * 3 <= screen_width && height * 4 <= screen_height;
     let popup = style & WS_POPUP.0 != 0;
     let topmost = exstyle & WS_EX_TOPMOST.0 != 0;
     let layered = exstyle & WS_EX_LAYERED.0 != 0;
-    // Popups should still surface normally: this only skips Astur adoption.
-    // Layered, captionless notification surfaces can be topmost even without
-    // WS_POPUP. Compact layered overlays may also appear away from screen
-    // corners (e.g. messenger banners near a toolbar).
-    (popup && (topmost || anchored))
-        || (layered
-            && (topmost || anchored || (width * 3 <= screen_width && height * 4 <= screen_height)))
+    // Popups must remain displayed normally; this only skips Astur adoption.
+    // Some browser/messenger banners sit near the middle of the top or bottom
+    // edge without TOPMOST/LAYERED bits, so a corner-only rule can tile them.
+    // Require a compact, borderless popup touching the monitor's vertical edge;
+    // ordinary small interior popups and captioned dialogs stay manageable.
+    // Layered messenger banners may instead appear away from screen corners.
+    (popup && (topmost || anchored || (at_vertical_edge && compact_banner)))
+        || (layered && (topmost || anchored || compact_banner))
 }
 
 /// Never ShowWindow/SetWindowPos here: notification display, click, animation
@@ -24837,6 +24839,42 @@ mod tests {
             small_topmost_popup,
             0,
             &toast,
+            &screen
+        ));
+        // Browser and messenger banners can appear at the top/bottom centre
+        // with neither TOPMOST nor LAYERED, so they must not enter tiling.
+        let top_center_banner = RECT {
+            left: 730,
+            top: 0,
+            right: 1190,
+            bottom: 120,
+        };
+        let bottom_center_banner = RECT {
+            left: 760,
+            top: 960,
+            right: 1160,
+            bottom: 1060,
+        };
+        for banner in [top_center_banner, bottom_center_banner] {
+            assert!(transient_overlay_shape(small_topmost_popup, 0, &banner, &screen));
+            assert!(!transient_overlay_shape(normal_main, 0, &banner, &screen));
+            assert!(!transient_overlay_shape(
+                small_topmost_popup | WS_CAPTION.0,
+                0,
+                &banner,
+                &screen
+            ));
+        }
+        let wide_top_window = RECT {
+            left: 400,
+            top: 0,
+            right: 1520,
+            bottom: 480,
+        };
+        assert!(!transient_overlay_shape(
+            small_topmost_popup,
+            0,
+            &wide_top_window,
             &screen
         ));
         // Conversely, a small unlayered popup floating in the middle of the

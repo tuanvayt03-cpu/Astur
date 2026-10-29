@@ -1,5 +1,12 @@
 # Astur VI — Handoff after in-place updater V2 (2026-10-29)
 
+## Post-notification screenshot fix — Preview 2.4.0.4 (2026-10-29)
+
+- Checkpoint `7db101f` (818 unique translations) was pushed with a normalized-string duplicate gate. Windows CI `40851884525` PASS (format, Clippy, unit tests, release build). Preview 2.4.0.3 updater workflow `40851884551` was running when 2.4.0.4 work began; do not overwrite any published tag.
+- The supplied notification screenshot places a compact banner near the **top middle**, whereas existing `transient_overlay_shape()` recognized popup windows without TOPMOST primarily at **screen corners**. Extended generic Win32 classification for **small borderless WS_POPUP windows near top or bottom monitor edge** even if unlayered/not TOPMOST, without app-specific blacklists. Synthetic Rust tests now cover top-centre and bottom-centre banners plus large borderless windows, small ordinary captioned dialogs and normal app windows as counterexamples.
+- **This is a plausible source-level remedy, not a verified Zalo live fix**: two read-only Win32 probes on the user's desktop had no real notification HWND at the time. No native Zalo notification was suppressed and no installed process/config was changed. Must verify real notification appears normally and tile sizes do not change before declaring that case PASS.
+- Preview 2.4.0.4 has its own immutable tag/installer version and must pass new Windows CI (Clippy/tests/build, locale render, installer upgrade smoke) and screenshot review before distribution. Preserve original backup directory `before-vi-update-2.4.0.1`, original AppId, and all unrelated user work.
+
 ## Post-render visual audit — Preview 2.4.0.3 (2026-10-29)
 
 - `de0c727` Windows CI `40851178202` and updater CI `40851178310` failed on Clippy due **four unreachable translation patterns**: the same MainKey descriptions were declared as multiline Rust literals and again as single-line equivalent strings. The first Rust patterns are valid; removed only four duplicate later arms. Correct catalog count is **818 unique messages**, not 822. Added Rust line-continuation normalized duplicate detection in `scripts/test_i18n_inventory.py` to prevent recurrence; local fresh inventory and updater contract PASS; full CI and installer publication for this follow-on patch remain UNVERIFIED until the new SHA's runs finish.
