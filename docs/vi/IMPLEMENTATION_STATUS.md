@@ -1,5 +1,14 @@
 # Astur VI — Implementation Status
 
+## 2026-10-29 localization audit — current checkout
+
+- Baseline: `72110704faa88859e6f222286d19b1f1b2d9db68` on `feat/vi-full-update-popup-v2`; no app launch, config write, install/release, commit or push.
+- Source/render-boundary inventory: **749** unique catalog entries, all **14** Settings pages, zero missing static `tr` and `trf` literals, sections, notes, metadata labels/descriptions, tips, format labels and owned dynamic templates; explicit exceptions are user data, machine data and shortcut tokens. This deliberately does not claim pixel-level 100%.
+- Localization boundaries completed: screenshot strings and Alt-drag help; named interpolation for dynamic key/help/validation/search strings; key picker and validation; native launcher headers/prompts/web rows; native power built-ins; status layout/mute labels; EN/VI date names. Internal config/action IDs, window identity fields, user content and shortcut tokens remain unchanged.
+- Fresh local evidence: `cargo fmt --all -- --check` exit 0; `git diff --check` exit 0; `python scripts/test_i18n_inventory.py` exit 0; `python -m py_compile scripts/test_i18n_inventory.py` exit 0; `cargo metadata --offline --no-deps --format-version 1` exit 0. GNU `rustc` from `C:\Program Files\Rust stable GNU 1.99\bin` compiles and runs the direct `astur-config` test binary: 71 passed, 0 failed. GNU Cargo workspace verifiers still exit 1 at missing cached `serde_json`.
+- Required workspace verifiers are blocked by environment dependency resolution, not reported as PASS: offline clippy, workspace tests, release build and ignored `render_pages` all exit 1 because the local cache has no `serde_json`; online Cargo cannot reach crates.io. No dependency was installed or changed.
+- Exact next actions: on a machine with a usable Windows linker plus the locked dependency cache/network, rerun fresh `cargo clippy --offline --workspace --all-targets --locked`, `cargo test --offline --workspace --all-targets --locked`, `cargo build --offline --release --workspace --locked`, and `cargo test --offline -p astur-settings -- --ignored render_pages --locked`; inspect both VI/EN render artifacts, then have the current controller re-read HEAD/tree and decide commit/push. Do not treat the pre-existing untracked `scripts/run_localization_audit.ps1` as changed.
+
 2026-10-28 · **In-place Astur VI Update Preview 2.4.0.1 released and upgrade smoke PASSED; NOT Stable.** Repo `tuanvayt03-cpu/Astur`, branch `feat/vi-full-update-popup-v2`. Earlier independent Preview also exists.
 
 ## Verified scope

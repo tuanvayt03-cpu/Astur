@@ -1,4 +1,36 @@
-# Astur VI — Handoff after in-place updater V2 (2026-10-28)
+# Astur VI — Handoff after in-place updater V2 (2026-10-29)
+
+## Controller checkpoint — 2026-10-29
+
+Source is a verified static/core-test checkpoint, not release-ready. Direct CodeLocal host verification resolved crates.io access and downloaded the locked dependencies. Fresh inventory (749), formatter and diff checks passed; workspace compilation then stopped at `parking_lot_core`: `dlltool.exe` missing (exit 101). Thus earlier missing-serde_json limitation below is superseded for host execution. Full compile/clippy/test/render remain unverified. Controller-created helper scripts were removed; they were not pre-existing user files. No installer was built or installed. Next: supply the GNU binutils toolchain, run full verifiers and inspect VI/EN renders. Commit/push checkpoint only; no release or merge.
+
+## Current authoritative localization wave — 2026-10-29
+
+- Scope is the current dirty checkout on `feat/vi-full-update-popup-v2`, baseline HEAD `72110704faa88859e6f222286d19b1f1b2d9db68`. The primary writer did not launch Astur, write user config, install/release, commit, or push.
+- First-party source coverage now includes the shared `astur-config::i18n` catalog, all 14 Settings pages, metadata/sections/notes, search and validation output, key-picker/help text, native launcher/power-menu labels, status layout/mute labels, runtime save/toast errors, and locale-aware date formatting. The catalog has **749 unique entries**; the inventory gate scans both `tr` and `trf` literals and reports zero missing static calls, sections, notes, metadata labels/descriptions, tips, format labels or owned dynamic templates. Three explicit exceptions remain by contract: user data, machine data and shortcut tokens. This is source/render-boundary coverage, not a claim of pixel-level 100% localization.
+- Changed source files: `crates/astur-config/src/i18n.rs`, `crates/astur-config/src/lib.rs`, `crates/astur-settings/src/main.rs`, `crates/astur/src/main.rs`, and `scripts/test_i18n_inventory.py`. Existing untracked `scripts/run_localization_audit.ps1` was preserved unchanged.
+- The screenshot regressions are covered at the render boundary: `Space between windows`, `Hold Left Alt...`, `Tile windows when Astur starts`, and Alt-drag help. Dynamic strings use named interpolation; config/action IDs, user data, class/exe names and shortcut tokens remain untouched.
+
+### Fresh evidence
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all -- --check` | exit 0 |
+| `git diff --check` | exit 0 |
+| `python scripts/test_i18n_inventory.py` | exit 0; 749 entries, 14 pages, `tr`/`trf` and all tracked categories missing 0 |
+| `cargo metadata --offline --no-deps --format-version 1` | exit 0 |
+| `C:\Program Files\Rust stable GNU 1.99\bin\rustc.exe --edition=2021 --test crates/astur-config/src/lib.rs` | exit 0; direct test binary 71 passed, 0 failed, including screenshot/interpolation and EN/VI date regressions |
+| `cargo test --offline -p astur-config --lib --locked` (GNU cargo) | exit 1: Cargo resolver cannot find cached `serde_json` from workspace package `astur` |
+| `cargo clippy --offline --workspace --all-targets --locked` | exit 1: cache lacks `serde_json` |
+| `cargo test --offline --workspace --all-targets --locked` | exit 1: cache lacks `serde_json` |
+| `cargo build --offline --release --workspace --locked` | exit 1: cache lacks `serde_json` |
+| `cargo test --offline -p astur-settings -- --ignored render_pages --locked` | exit 1: cache lacks `serde_json` |
+
+The online Cargo test was also attempted and could not reach `index.crates.io`; no dependency or network workaround was installed. Full workspace compile, clippy, release build and offscreen Settings render remain UNVERIFIED for this machine. Exact next action: provide a Windows GNU toolchain (or MSVC Build Tools) and the locked dependency cache/network, rerun the four Cargo commands above, then inspect both VI and EN `render_pages` artifacts before any controller-owned commit/push. The pre-existing untracked `scripts/run_localization_audit.ps1` remains untouched; its `workspace-write` setting is a residual audit risk, not part of this localization change.
+
+One real test defect found and fixed in this wave: locale-sensitive date golden tests raced the global locale tests. A test-only shared lock now makes EN/VI assertions deterministic; it does not alter runtime locale semantics.
+
+The release/installer and notification sections below are historical context from 2026-10-28, not fresh evidence for this checkout.
 
 ## Current project state
 - GitHub fork: https://github.com/tuanvayt03-cpu/Astur

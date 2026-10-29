@@ -3,6 +3,9 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(test)]
+pub(crate) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 static VIETNAMESE: AtomicBool = AtomicBool::new(false);
 
 pub fn language() -> &'static str {
@@ -585,14 +588,249 @@ pub fn tr(text: &str) -> &str {
         "This list is applied once the red rows are fixed; until then Astur keeps its last good version." => "Danh sách chỉ áp dụng sau khi sửa các dòng đỏ; trước đó Astur giữ cấu hình hợp lệ gần nhất.",
         "Presets" => "Mẫu có sẵn",
         "Setup" => "Thiết lập",
+        "Drag to move it; click for its settings." => "Kéo để di chuyển; nhấp để mở cài đặt.",
+        "Hold {key}, the Astur key, for every shortcut below." => "Giữ {key}, phím Astur, cho mọi phím tắt bên dưới.",
+        "Kept in ignore_classes, which matches by window class alone and is checked before every rule." => "Được giữ trong ignore_classes; mục này chỉ so khớp theo lớp cửa sổ và được kiểm tra trước mọi quy tắc.",
+        "Kept in float_classes, which matches by window class alone and applies only when no rule matches." => "Được giữ trong float_classes; mục này chỉ so khớp theo lớp cửa sổ và chỉ áp dụng khi không có quy tắc nào khớp.",
+        "Text in the window's title. {wild} title." => "Văn bản trong tiêu đề cửa sổ. {wild} tiêu đề.",
+        "The window's class name. {wild} class." => "Tên lớp của cửa sổ. {wild} lớp.",
+        "more" => "thêm",
+        "Preset" => "Mẫu",
+        "Space between windows" => "Khoảng cách giữa các cửa sổ",
+        "Tile windows when Astur starts" => "Xếp ô cửa sổ khi Astur khởi động",
+        "Files changed outside Settings; Undo restarted" => "Tệp đã thay đổi bên ngoài Settings; lịch sử Hoàn tác đã khởi động lại",
+        "Off: Astur starts with tiling off, so every window floats as on plain Windows until you press {key}{toggle}. Takes effect the next time Astur starts." => "Tắt: Astur khởi động với chế độ nổi, giống Windows nguyên bản, cho đến khi nhấn {key}{toggle}. Có hiệu lực từ lần khởi động Astur tiếp theo.",
+        "Preset not applied: couldn't back up navbar.conf: {error}" => "Chưa áp dụng mẫu: không thể sao lưu navbar.conf: {error}",
+        "System default" => "Mặc định hệ thống",
+        "Your user folder" => "Thư mục người dùng của anh",
+        "Everything Windows indexes" => "Mọi thứ Windows lập chỉ mục",
+        "The basics, one click each. Every change applies at once, and Undo (Ctrl+Z) takes it back." => "Các thiết lập cơ bản, mỗi mục một lần nhấp. Mọi thay đổi có hiệu lực ngay và có thể hoàn tác bằng Ctrl+Z.",
+        "Auto takes each colour from the palette, in its light or dark version as the theme says. A colour you pick stays, whatever the theme." => "Tự động lấy màu từ bảng màu theo giao diện sáng hoặc tối. Màu tự chọn được giữ nguyên bất kể giao diện.",
+        "Drag a widget into a zone to show it, or down to the list below the zones to hide it. Click one for its settings." => "Kéo tiện ích vào một vùng để hiện, hoặc kéo xuống danh sách bên dưới để ẩn. Nhấp vào tiện ích để mở cài đặt.",
+        "What a click on a widget does, for the widgets on the bar. Workspaces, app buttons and the music buttons have their own clicks." => "Quy định thao tác khi nhấp vào tiện ích trên thanh. Workspace, nút ứng dụng và nút nhạc có thao tác riêng.",
+        "Expert settings: they change how Astur talks to Windows. Leave them on unless something misbehaves." => "Thiết lập chuyên sâu: thay đổi cách Astur làm việc với Windows. Hãy giữ nguyên trừ khi có vấn đề.",
+        "How the workspaces look is under Workspaces, further down." => "Cách hiển thị workspace nằm ở mục Workspaces bên dưới.",
+        "None of the widgets on the bar has click actions." => "Không có tiện ích nào trên thanh có thao tác khi nhấp.",
+        "A red column is applied once it is fixed; until then Astur keeps its last good version." => "Cột màu đỏ sẽ được áp dụng sau khi sửa; trước đó Astur giữ phiên bản hợp lệ gần nhất.",
+        "Move a window: hold the key and drag anywhere on it" => "Di chuyển cửa sổ: giữ phím rồi kéo ở bất kỳ vị trí nào trên cửa sổ",
+        "Resize a window from its nearest corner" => "Đổi kích thước cửa sổ từ góc gần con trỏ nhất",
+        "Go to a workspace (add Shift to take the window along)" => "Chuyển đến workspace (nhấn thêm Shift để đưa cửa sổ theo)",
+        "Focus the next or the previous window" => "Chọn cửa sổ tiếp theo hoặc trước đó",
+        "Focus the window in that direction (add Shift to move it)" => "Chọn cửa sổ theo hướng đó (nhấn thêm Shift để di chuyển)",
+        "Find and open apps, files and more" => "Tìm và mở ứng dụng, tệp cùng nhiều nội dung khác",
+        "Open your terminal" => "Mở terminal",
+        "Float the window, or tile it again" => "Để cửa sổ nổi hoặc xếp ô lại",
+        "Lock, sleep, restart, and Astur's own menu" => "Khóa, ngủ, khởi động lại và mở menu riêng của Astur",
+        "Auto-hide" => "Tự động ẩn",
+        "Dock at the bottom" => "Neo ở dưới cùng",
+        "Muted" => "Đã tắt tiếng",
+        "Outline colour" => "Màu đường viền",
+        "Show the bar on" => "Hiện thanh trên",
+        "Surface" => "Bề mặt",
+        "Left Alt" => "Alt trái",
+        "Windows key" => "Phím Windows",
+        "Alt (either side)" => "Alt (bên nào cũng được)",
+        "Ctrl + Windows key" => "Ctrl + phím Windows",
+        "Caps Lock" => "Caps Lock",
+        "Recommended. Astur keeps Left Alt to itself, so apps never react to it. Use Right Alt for app shortcuts such as Alt+F4." => "Khuyến nghị. Astur giữ riêng Alt trái nên ứng dụng không phản ứng với phím này. Dùng Alt phải cho phím tắt ứng dụng như Alt+F4.",
+        "Apps and Windows keep the Windows key; only Astur's own shortcuts take it over, replacing Windows ones such as Win+D. Win+L always locks the PC, so \"grow\" moves to Win+O (unless one of your shortcuts uses O)." => "Ứng dụng và Windows vẫn dùng phím Windows; chỉ phím tắt của Astur chiếm phím này, thay thế các phím Windows như Win+D. Win+L luôn khóa máy nên \"tăng\" chuyển sang Win+O (trừ khi một phím tắt của bạn dùng O).",
+        "Like GlazeWM. Apps keep Alt, except for the shortcuts Astur uses, such as Alt+Space and Alt+1." => "Giống GlazeWM. Ứng dụng vẫn dùng Alt, ngoại trừ các phím tắt Astur sử dụng như Alt+Space và Alt+1.",
+        "Hold Ctrl and the Windows key together. Few apps use this pair, but every shortcut takes an extra finger." => "Giữ đồng thời Ctrl và phím Windows. Ít ứng dụng dùng tổ hợp này, nhưng mọi phím tắt cần thêm một ngón tay.",
+        "Caps Lock becomes the Astur key and no longer toggles capitals. Shift still types capital letters." => "Caps Lock trở thành phím Astur và không còn bật/tắt chữ hoa. Shift vẫn gõ được chữ hoa.",
+        "Tapping the Windows key on its own still opens Start; after an Astur shortcut it stays closed." => "Nhấn riêng phím Windows vẫn mở Start; sau phím tắt Astur, Start vẫn đóng.",
+        "Menu bars don't light up after an Astur shortcut." => "Thanh menu không sáng lên sau phím tắt Astur.",
+        "Shift still types capital letters." => "Shift vẫn gõ được chữ hoa.",
+        "Windows shortcuts it takes over:" => "Các phím tắt Windows mà phím này chiếm:",
+        "Takes over {n} Windows shortcut{s}" => "Chiếm {n} phím tắt Windows{s}",
+        "Switch windows" => "Chuyển cửa sổ",
+        "Search apps, files and commands…" => "Tìm ứng dụng, tệp và lệnh…",
+        "Modified" => "Đã sửa",
+        "Path" => "Đường dẫn",
+        "Enter copies" => "Enter để sao chép",
+        "Search the web for {query}" => "Tìm trên web với {query}",
+        "Press Enter again to {action}  •  Esc cancels" => "Nhấn Enter lần nữa để {action}  •  Esc để hủy",
+        "Up/Down  •  Enter open  •  Esc close" => "Lên/Xuống  •  Enter để mở  •  Esc để đóng",
+        "Up/Down  •  Enter run  •  ←/Esc back" => "Lên/Xuống  •  Enter để chạy  •  ←/Esc để quay lại",
+        "Read-only: {text}" => "Chỉ đọc: {text}",
+        "Both config files OK" => "Cả hai tệp cấu hình đều hợp lệ",
+        "Not understood, so it does nothing. Did you mean {hint}?" => "Không được nhận diện nên không có tác dụng. Ý anh là {hint} phải không?",
+        "Not understood, so it does nothing." => "Không được nhận diện nên không có tác dụng.",
+        "Reload from disk" => "Tải lại từ đĩa",
+        "Rename to {key}" => "Đổi tên thành {key}",
+        "Enter" => "Enter",
+        "{reason}, so this does nothing" => "{reason}, nên phím tắt không có tác dụng",
+        "replaces Windows' own shortcut, which {what}" => "thay thế phím tắt của Windows, vốn {what}",
+        "needs the Astur key, Alt or Win: Ctrl and Shift shortcuts belong to apps, and a key on its own is typing" => "cần phím Astur, Alt hoặc Win: phím tắt chỉ có Ctrl và Shift thuộc về ứng dụng, còn phím đứng một mình là thao tác gõ",
+        "Alt+Tab always switches windows" => "Alt+Tab luôn chuyển cửa sổ",
+        "Windows always locks the PC on Win+L" => "Windows luôn khóa máy khi nhấn Win+L",
+        "Windows always handles Ctrl+Alt+Delete" => "Windows luôn xử lý Ctrl+Alt+Delete",
+        "on many non-US keyboards Ctrl+Alt types characters such as @ and €; this shortcut stops that" => "trên nhiều bàn phím không phải kiểu Mỹ, Ctrl+Alt gõ được các ký tự như @ và €; phím tắt này sẽ chặn thao tác đó",
+        "switches the keyboard language" => "chuyển ngôn ngữ bàn phím",
+        "opens Task View" => "mở Task View",
+        "opens a taskbar app" => "mở ứng dụng trên thanh tác vụ",
+        "snaps the window" => "xếp cửa sổ vào cạnh màn hình",
+        "minimises the other windows" => "thu nhỏ các cửa sổ khác",
+        "opens quick settings" => "mở cài đặt nhanh",
+        "shows the desktop" => "hiện màn hình nền",
+        "opens File Explorer" => "mở File Explorer",
+        "opens the Game Bar" => "mở Game Bar",
+        "starts voice typing" => "bắt đầu nhập liệu bằng giọng nói",
+        "opens Settings" => "mở Cài đặt",
+        "opens Cast" => "mở Cast",
+        "minimises every window" => "thu nhỏ mọi cửa sổ",
+        "opens notifications" => "mở thông báo",
+        "changes the display mode" => "đổi chế độ hiển thị",
+        "opens Run" => "mở Run",
+        "opens search" => "mở tìm kiếm",
+        "opens accessibility settings" => "mở cài đặt trợ năng",
+        "opens clipboard history" => "mở lịch sử clipboard",
+        "opens the Start button menu" => "mở menu nút Start",
+        "opens the emoji panel" => "mở bảng emoji",
+        "zooms in with Magnifier" => "phóng to bằng Kính lúp",
+        "zooms out with Magnifier" => "thu nhỏ bằng Kính lúp",
+        "takes a screenshot" => "chụp màn hình",
+        "moves the window to another screen" => "chuyển cửa sổ sang màn hình khác",
+        "starts Narrator" => "bật Trình tường thuật",
+        "adds a virtual desktop" => "thêm desktop ảo",
+        "switches virtual desktops" => "chuyển desktop ảo",
+        "closes the virtual desktop" => "đóng desktop ảo",
+        "switches windows" => "chuyển cửa sổ",
+        "closes the window" => "đóng cửa sổ",
+        "opens the window menu" => "mở menu cửa sổ",
+        "cycles windows" => "chuyển lần lượt qua các cửa sổ",
+        "App launcher ({key}Space)" => "Trình mở ứng dụng ({key}Space)",
+        "Hold {name} and press the key shown. To change a shortcut, click its key and press the new one ({held} is added for you). Esc cancels, Backspace clears." => "Giữ {name} rồi nhấn phím được hiển thị. Để đổi phím tắt, nhấp vào phím rồi nhấn phím mới ({held} sẽ được thêm tự động). Esc để hủy, Backspace để xóa.",
+        "Terminal ({key}Enter)" => "Terminal ({key}Enter)",
+        "The command-line app {key}Enter opens. The list shows the ones on this PC." => "Ứng dụng dòng lệnh mở bằng {key}Enter. Danh sách hiển thị các ứng dụng có trên máy này.",
+        "Browser ({key}Shift+Enter)" => "Trình duyệt ({key}Shift+Enter)",
+        "The web browser {key}Shift+Enter opens. System default is the one Windows opens links with." => "Trình duyệt mở bằng {key}Shift+Enter. Mặc định hệ thống là trình duyệt Windows dùng để mở liên kết.",
+        "Hold {name} (or the keys you switch on) and press a key to run an action. A custom shortcut wins over Astur's own keys, except the launcher and power menu ones." => "Giữ {name} (hoặc các phím anh bật thêm) rồi nhấn một phím để chạy hành động. Phím tắt tùy chỉnh được ưu tiên hơn phím của Astur, trừ phím mở ứng dụng và menu nguồn.",
+        "New Astur key: {new}. Keep it? Going back to {old} in {seconds} s." => "Phím Astur mới: {new}. Giữ lại? Sẽ quay về {old} sau {seconds} giây.",
+        "Astur shortcuts (hold {key})" => "Phím tắt Astur (giữ {key})",
+        "Windows and layout" => "Cửa sổ và bố cục",
+        "Workspaces (with Shift: take the window along)" => "Workspace (nhấn Shift để đưa cửa sổ theo)",
+        "Workspace {n}{name}" => "Workspace {n}{name}",
+        "Mouse" => "Chuột",
+        "MUTE" => "TẮT TIẾNG",
+        "modified" => "đã sửa",
+        "Not saved: {error}" => "Chưa lưu: {error}",
+        "Couldn't write {path}: {error}" => "Không thể ghi {path}: {error}",
+        "Couldn't save display language: {error}" => "Không thể lưu ngôn ngữ hiển thị: {error}",
+        "Saved, but Astur reads a different value for {keys}: another line sets it again (later in the file, or in the other file), or the value is not valid." => "Đã lưu nhưng Astur đọc giá trị khác cho {keys}: một dòng khác lại đặt giá trị này (ở phía sau tệp hoặc trong tệp kia), hoặc giá trị không hợp lệ.",
+        "Read-only: {error}" => "Chỉ đọc: {error}",
+        "Read-only: {error}. Showing built-in defaults and writing nothing, so the file stays as it is. Save it as UTF-8 (or close the program holding it), then press Retry." => "Chỉ đọc: {error}. Đang hiển thị mặc định tích hợp và không ghi gì nên tệp vẫn giữ nguyên. Hãy lưu tệp dưới dạng UTF-8 (hoặc đóng chương trình đang giữ tệp), rồi nhấn Thử lại.",
+        "{count} config line{s} not understood, so {verb} nothing" => "Không nhận diện được {count} dòng cấu hình{s} nên {verb} có tác dụng gì.",
+        "No settings match {query}." => "Không có cài đặt nào khớp với {query}.",
+        "{held} + a workspace's key switches to it; with Shift it takes the active window there. Set them in the Workspaces table." => "Nhấn {held} cùng phím của workspace để chuyển tới đó; thêm Shift để đưa cửa sổ hiện tại theo. Thiết lập trong bảng Workspaces.",
+        "What {key}Enter runs, typed out: for an app with options, e.g. wt -p Ubuntu. Put a path with spaces in quotes when options follow it." => "Lệnh {key}Enter chạy, viết đầy đủ: với ứng dụng có tùy chọn, ví dụ wt -p Ubuntu. Đặt đường dẫn có khoảng trắng trong dấu ngoặc kép khi có tùy chọn phía sau.",
+        "What {key}Shift+Enter runs. Empty: the system default browser." => "Lệnh {key}Shift+Enter chạy. Để trống: dùng trình duyệt mặc định của hệ thống.",
+        "Monitor 1 (leftmost)" => "Màn hình 1 (ngoài cùng bên trái)",
+        "Monitor {n}" => "Màn hình {n}",
+        "Monitors are counted from left to right, here and in window rules. A layout shortcut changes only the monitor you are on." => "Màn hình được đếm từ trái sang phải ở đây và trong quy tắc cửa sổ. Phím tắt bố cục chỉ đổi màn hình hiện tại.",
+        "Column widths ({width})" => "Độ rộng cột ({width})",
+        "The widths {width} steps through, as a share of the screen." => "Các độ rộng mà {width} lần lượt chọn, tính theo tỷ lệ màn hình.",
+        "Window heights ({height})" => "Chiều cao cửa sổ ({height})",
+        "The heights {height} steps through, for a window sharing a column." => "Các chiều cao mà {height} lần lượt chọn cho cửa sổ dùng chung một cột.",
+        "The tab strip of a tabbed column ({tab})." => "Thanh tab của cột dạng tab ({tab}).",
+        "A search box for apps, files, calculations and the web." => "Ô tìm kiếm ứng dụng, tệp, phép tính và web.",
+        "Lock, sleep, restart and Astur's own actions in one menu." => "Khóa, ngủ, khởi động lại và các thao tác riêng của Astur trong một menu.",
+        "An app (a terminal by default) that drops down over everything with {key} and hides again with the same key. Change the key under Shortcuts > Extra hotkeys." => "Một ứng dụng (mặc định là terminal) xổ xuống trên mọi cửa sổ bằng {key} và ẩn lại bằng phím đó. Đổi phím trong Phím tắt > Phím tắt bổ sung.",
+        "Replace {old} = {old_value} with {new}" => "Đổi {old} = {old_value} thành {new}",
+        "Not added: {path} has a , or ; and this list is split at those. Type the end of its path instead, e.g. {tail}" => "Chưa thêm: {path} có dấu , hoặc ; nên danh sách bị tách tại đó. Hãy nhập phần cuối của đường dẫn, ví dụ {tail}",
+        "Window class: {class}" => "Lớp cửa sổ: {class}",
+        "No key: Astur keeps {key}" => "Không có phím: Astur giữ {key}",
+        "The app's file name, or its full path. {wild} app." => "Tên tệp ứng dụng hoặc toàn bộ đường dẫn. {wild} ứng dụng.",
+        "App, e.g. notepad.exe" => "Ứng dụng, ví dụ notepad.exe",
+        "Command, e.g. wt -p Ubuntu" => "Lệnh, ví dụ wt -p Ubuntu",
+        "Click, then press a key: 0-9, A-Z, F1-F24, Space, Tab, Enter, or [ ] ` - = where a US keyboard has them (without Ctrl held: use the Ctrl switch). Esc cancels; Backspace clears." => "Nhấp rồi nhấn phím: 0-9, A-Z, F1-F24, Space, Tab, Enter hoặc [ ] ` - = theo vị trí trên bàn phím Mỹ (nếu không giữ Ctrl: dùng công tắc Ctrl). Esc để hủy; Backspace để xóa.",
+        "Click, then press the key: 0-9, A-Z, F1-F24, or [ ] where a US keyboard has them. Esc cancels; Backspace clears." => "Nhấp rồi nhấn phím: 0-9, A-Z, F1-F24 hoặc [ ] theo vị trí trên bàn phím Mỹ. Esc để hủy; Backspace để xóa.",
+        "Press a key" => "Nhấn một phím",
+        "Move up" => "Di chuyển lên",
+        "Scratchpad is off (Desktop extras)" => "Scratchpad đang tắt (Tiện ích màn hình)",
+        "Any {what}" => "Bất kỳ {what}",
+        "A built-in icon (pick one from the menu), or the path of an .ico, .png or .exe" => "Biểu tượng tích hợp (chọn trong menu) hoặc đường dẫn tới tệp .ico, .png hay .exe",
+        "None of these screens is connected now, so no bar shows." => "Hiện không có màn hình nào trong số này được kết nối nên không thanh nào hiển thị.",
+        "Click" => "Nhấp",
+        "Right-click" => "Nhấp phải",
+        "Middle-click" => "Nhấp giữa",
+        "{action} (default)" => "{action} (mặc định)",
+        "Workspace {n} doesn't exist (you have {ws}), so this does nothing." => "Workspace {n} không tồn tại (anh có {ws} workspace) nên thao tác này không có tác dụng.",
+        "Custom: {value}" => "Tùy chỉnh: {value}",
+        "Copy cheat sheet" => "Sao chép bảng phím tắt",
+        "Pick an app" => "Chọn ứng dụng",
+        "language" => "ngôn ngữ",
+        "language and country" => "ngôn ngữ và quốc gia",
+        "country" => "quốc gia",
+        "Choose an app" => "Chọn ứng dụng",
+        "Choose a file" => "Chọn tệp",
+        "Choose a folder" => "Chọn thư mục",
+        "Choose a picture" => "Chọn ảnh",
+        "Choose an icon" => "Chọn biểu tượng",
+        "All files" => "Tất cả tệp",
+        "Apps" => "Ứng dụng",
+        "Pictures" => "Ảnh",
+        "Icons and apps" => "Biểu tượng và ứng dụng",
+        "A class in this list can't contain , or ;" => "Lớp trong danh sách này không được chứa , hoặc ;",
+        "Pick a window or type an app: an empty rule would match every window" => "Chọn cửa sổ hoặc nhập ứng dụng: quy tắc trống sẽ khớp với mọi cửa sổ",
+        "Type the window class" => "Nhập lớp cửa sổ",
+        "Type a label" => "Nhập nhãn",
+        "Type what it opens" => "Nhập nội dung nó mở",
+        "Type what it runs" => "Nhập nội dung nó chạy",
+        "Can't be written as typed: check for a \\ next to a | or ;" => "Không thể ghi như đã nhập: hãy kiểm tra dấu \\ cạnh | hoặc ;",
+        "Press the key for this shortcut" => "Nhấn phím cho phím tắt này",
+        "Astur can't read {chord}: set its key again" => "Astur không đọc được {chord}: hãy đặt lại phím",
+        "{chord} has no Astur key, Alt or Win, so it does nothing. Set its key again to add the Astur key." => "{chord} không có phím Astur, Alt hoặc Win nên không có tác dụng. Hãy đặt lại phím để thêm phím Astur.",
+        "Astur has no action {action}" => "Astur không có hành động {action}",
+        "Astur has no item {name}: untick it to drop it" => "Astur không có mục {name}: bỏ chọn mục này để xóa",
+        "Power menu ({key}Shift+Space)" => "Menu nguồn ({key}Shift+Space)",
+        "Screen {screen}" => "Màn hình {screen}",
+        "Pick a workspace number" => "Chọn số workspace",
+        "Pick a layout" => "Chọn bố cục",
+        "Type the command to run" => "Nhập lệnh cần chạy",
+        "No {what}: the {what}s after it would move up a workspace (the file can't skip one). Set one, or clear the later ones." => "Thiếu {what}: các {what} phía sau sẽ dồn lên một workspace (tệp không thể bỏ qua workspace). Hãy đặt một giá trị hoặc xóa các giá trị phía sau.",
+        "{value} is not a key Astur can use here" => "{value} không phải phím Astur có thể dùng ở đây",
+        "A {what} can't contain , or ;" => "{what} không được chứa , hoặc ;",
+        "A wallpaper path can't contain ;;" => "Đường dẫn hình nền không được chứa ;;",
+        "Listed in navbar.conf but switched off, so it isn't drawn. Drag it into a zone to show it." => "Có trong navbar.conf nhưng đang tắt nên không được vẽ. Kéo vào một vùng để hiển thị.",
+        "Type a setting" => "Nhập tên cài đặt",
+        "Custom: {v}" => "Tùy chỉnh: {v}",
         _ => text,
     }
+}
+
+/// Translate a display string and replace named placeholders after translation.
+/// Replacements are display values only: callers must never pass config keys,
+/// action IDs, window identity fields or user text as the source string.
+pub fn trf(text: &str, replacements: &[(&str, &str)]) -> String {
+    let translated = tr(text);
+    let mut out = String::with_capacity(translated.len());
+    let mut rest = translated;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let after_open = &rest[open + 1..];
+        let Some(close_rel) = after_open.find('}') else {
+            out.push_str(&rest[open..]);
+            rest = "";
+            break;
+        };
+        let close = open + 1 + close_rel;
+        let name = &rest[open + 1..close];
+        if let Some((_, value)) = replacements.iter().find(|(key, _)| *key == name) {
+            out.push_str(value);
+        } else {
+            out.push_str(&rest[open..=close]);
+        }
+        rest = &rest[close + 1..];
+    }
+    if !rest.is_empty() {
+        out.push_str(rest);
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     #[test]
     fn default_locale_english_and_vietnamese_fallback() {
         let _lock = TEST_LOCK.lock().unwrap();
@@ -638,6 +876,43 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "vi");
         assert!(save(&path, "xx").is_err());
         let _ = std::fs::remove_file(path);
+        set_language("en");
+    }
+
+    #[test]
+    fn screenshot_help_strings_translate_at_the_render_boundary() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        set_language("vi");
+        assert_eq!(tr("Space between windows"), "Khoảng cách giữa các cửa sổ");
+        assert_eq!(
+            trf(
+                "Hold {key}, the Astur key, for every shortcut below.",
+                &[("key", "Left Alt")],
+            ),
+            "Giữ Left Alt, phím Astur, cho mọi phím tắt bên dưới."
+        );
+        assert_eq!(
+            trf(
+                "Off: Astur starts with tiling off, so every window floats as on plain Windows until you press {key}{toggle}. Takes effect the next time Astur starts.",
+                &[("key", "Alt+"), ("toggle", "T")],
+            ),
+            "Tắt: Astur khởi động với chế độ nổi, giống Windows nguyên bản, cho đến khi nhấn Alt+T. Có hiệu lực từ lần khởi động Astur tiếp theo."
+        );
+        assert_eq!(
+            trf(
+                "{first} / {second}",
+                &[("first", "literal {second}"), ("second", "sau")]
+            ),
+            "literal {second} / sau"
+        );
+        assert_eq!(
+            tr("Move a window: hold the key and drag anywhere on it"),
+            "Di chuyển cửa sổ: giữ phím rồi kéo ở bất kỳ vị trí nào trên cửa sổ"
+        );
+        assert_eq!(
+            tr("Tile windows when Astur starts"),
+            "Xếp ô cửa sổ khi Astur khởi động"
+        );
         set_language("en");
     }
 }

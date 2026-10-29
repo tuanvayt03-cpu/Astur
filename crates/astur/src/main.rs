@@ -29,7 +29,7 @@ mod yasb;
 // Config now lives in the shared `astur-config` crate (the settings GUI parses the
 // same model). Aliased to `config` so the rest of this file is unchanged.
 use astur_config as config;
-use config::i18n::{self, tr};
+use config::i18n::{self, tr, trf};
 use config::{config_path, load_config, Config, HotkeyDef, WindowRule};
 use layout::{
     clamp_offset, classify, col_width, columns_layout, dwindle_layout, grid_layout, master_stack,
@@ -15314,7 +15314,7 @@ unsafe fn bar_widget_text(
         // without one the text is MUTE, as before glyphs.
         BarWidget::Volume if mute && glyph.is_none() => (vol >= 0).then(|| {
             (
-                widget_icon_text(mode, &data.icon_volume, "MUTE".to_string()),
+                widget_icon_text(mode, &data.icon_volume, tr("MUTE").to_string()),
                 Tone::Dim,
                 None,
             )
@@ -15333,9 +15333,18 @@ unsafe fn bar_widget_text(
             // Each bar shows its own monitor's layout; none before the
             // manager's first snapshot names the monitor.
             let s = if data.tiling {
-                format!("[{}]", mb?.layout)
+                let label = match mb?.layout.as_str() {
+                    "dwindle" => "Dwindle",
+                    "master" => "Master",
+                    "columns" => "Columns",
+                    "grid" => "Grid",
+                    "monocle" => "Monocle",
+                    "scrolling" => "Scrolling",
+                    _ => mb?.layout.as_str(),
+                };
+                format!("[{}]", tr(label))
             } else {
-                "[float]".to_string()
+                format!("[{}]", tr("Float"))
             };
             Some((s, Tone::Dim, None))
         }
@@ -21973,9 +21982,9 @@ unsafe fn launcher_paint(h: HWND) {
     if st.query.is_empty() {
         SetTextColor(hdc, COLORREF(p.dim));
         let prompt = if st.window_only {
-            "Switch windows"
+            tr("Switch windows")
         } else {
-            "Search apps, files and commands…"
+            tr("Search apps, files and commands…")
         };
         let mut v: Vec<u16> = prompt.encode_utf16().collect();
         DrawTextW(
@@ -22035,10 +22044,10 @@ unsafe fn launcher_paint(h: HWND) {
                 DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | extra,
             );
         };
-        hdr(text_left, date_x - 10, "Name", DRAW_TEXT_FORMAT(0));
-        hdr(date_x, size_x - 8, "Modified", DRAW_TEXT_FORMAT(0));
-        hdr(size_x, size_x + col_size_w() - 16, "Size", DT_RIGHT);
-        hdr(path_x, w - la_pad(), "Path", DRAW_TEXT_FORMAT(0));
+        hdr(text_left, date_x - 10, tr("Name"), DRAW_TEXT_FORMAT(0));
+        hdr(date_x, size_x - 8, tr("Modified"), DRAW_TEXT_FORMAT(0));
+        hdr(size_x, size_x + col_size_w() - 16, tr("Size"), DT_RIGHT);
+        hdr(path_x, w - la_pad(), tr("Path"), DRAW_TEXT_FORMAT(0));
     }
     let mut want: Vec<IconJob> = Vec::new(); // visible app/file icons still missing
     for vis in 0..rows {
@@ -22108,8 +22117,15 @@ unsafe fn launcher_paint(h: HWND) {
                     draw_builtin_icon(hdc, icon, icon_x, icon_y, la_icon_px(), keep);
                 }
                 let text = match hit {
-                    Hit::Calc => format!("{}   (Enter copies)", st.calc.as_deref().unwrap_or("")),
-                    Hit::Web => format!("Search the web for \u{201c}{}\u{201d}", st.query.trim()),
+                    Hit::Calc => format!(
+                        "{}   ({})",
+                        st.calc.as_deref().unwrap_or(""),
+                        tr("Enter copies")
+                    ),
+                    Hit::Web => trf(
+                        "Search the web for {query}",
+                        &[("query", &format!("\u{201c}{}\u{201d}", st.query.trim()))],
+                    ),
                     Hit::Clipboard(i) => st.clipboard[i].replace(['\r', '\n'], " "),
                     Hit::Emoji(i) => st.emoji[i].name.clone(),
                     _ => String::new(),
@@ -22843,38 +22859,47 @@ fn sys_action(label: &str, icon: &str, act: SysAct, confirm: bool) -> SysItem {
 
 fn builtin_sys_item(id: &str, wallpaper_dir: &str) -> Option<SysItem> {
     match id.trim().to_ascii_lowercase().as_str() {
-        "lock" => Some(sys_action("Lock", "lock", SysAct::Lock, false)),
-        "sleep" => Some(sys_action("Sleep", "sleep", SysAct::Sleep, false)),
-        "hibernate" => Some(sys_action("Hibernate", "sleep", SysAct::Hibernate, false)),
-        "sign_out" | "signout" => Some(sys_action("Sign out", "signout", SysAct::SignOut, true)),
-        "restart" => Some(sys_action("Restart", "restart", SysAct::Restart, true)),
-        "shutdown" | "shut_down" => Some(sys_action("Shut down", "power", SysAct::Shutdown, true)),
+        "lock" => Some(sys_action(tr("Lock"), "lock", SysAct::Lock, false)),
+        "sleep" => Some(sys_action(tr("Sleep"), "sleep", SysAct::Sleep, false)),
+        "hibernate" => Some(sys_action(
+            tr("Hibernate"),
+            "sleep",
+            SysAct::Hibernate,
+            false,
+        )),
+        "sign_out" | "signout" => {
+            Some(sys_action(tr("Sign out"), "signout", SysAct::SignOut, true))
+        }
+        "restart" => Some(sys_action(tr("Restart"), "restart", SysAct::Restart, true)),
+        "shutdown" | "shut_down" => {
+            Some(sys_action(tr("Shut down"), "power", SysAct::Shutdown, true))
+        }
         "settings" => Some(sys_action(
-            "Settings",
+            tr("Settings"),
             "settings",
             SysAct::OpenSettings,
             false,
         )),
         "open_config" => Some(sys_action(
-            "Open config folder",
+            tr("Open config folder"),
             "folder",
             SysAct::OpenConfig,
             false,
         )),
         "reload" => Some(sys_action(
-            "Reload configuration",
+            tr("Reload configuration"),
             "reload",
             SysAct::Reload,
             false,
         )),
         "restart_astur" => Some(sys_action(
-            "Restart Astur",
+            tr("Restart Astur"),
             "restart",
             SysAct::RestartAstur,
             true,
         )),
         "screenshot" => Some(sys_action(
-            "Screenshot",
+            tr("Screenshot"),
             "screenshot",
             SysAct::Screenshot,
             false,
@@ -23180,6 +23205,7 @@ fn sysmenu_row_hit(n: usize, y: i32) -> Option<usize> {
 }
 
 unsafe fn sysmenu_show(h: HWND) {
+    i18n::load(&config_path("ASTUR_CONF", "astur.conf").with_file_name("ui-language.txt"));
     {
         let mut st = SYSMENU_STATE.lock().unwrap();
         st.items = build_system_root();
@@ -23191,7 +23217,6 @@ unsafe fn sysmenu_show(h: HWND) {
                 false,
             ));
         }
-        i18n::load(&config_path("ASTUR_CONF", "astur.conf").with_file_name("ui-language.txt"));
         st.title = tr("System").to_string();
         st.sel = 0;
         st.confirm = false;
@@ -23352,14 +23377,17 @@ unsafe fn sysmenu_paint(h: HWND) {
 
     let fy = rc.bottom - sm_footer();
     let label = if st.confirm {
-        format!(
-            "Press Enter again to {}  \u{2022}  Esc cancels",
-            st.items[st.sel].label.to_ascii_lowercase()
+        trf(
+            "Press Enter again to {action}  •  Esc cancels",
+            &[(
+                "action",
+                st.items[st.sel].label.to_ascii_lowercase().as_str(),
+            )],
         )
     } else if st.stack.is_empty() {
-        "Up/Down  \u{2022}  Enter open  \u{2022}  Esc close".to_string()
+        tr("Up/Down  •  Enter open  •  Esc close").to_string()
     } else {
-        "Up/Down  \u{2022}  Enter run  \u{2022}  \u{2190}/Esc back".to_string()
+        tr("Up/Down  •  Enter run  •  ←/Esc back").to_string()
     };
     SetTextColor(hdc, COLORREF(if st.confirm { p.selbg } else { p.dim }));
     let mut fr = RECT {

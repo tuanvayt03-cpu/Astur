@@ -425,29 +425,68 @@ pub fn format_clock(fmt: &str, h24: bool, h: u32, m: u32, s: u32) -> String {
 /// `mon` is 1..=12, `wday` 0 = Sunday; out of range gives no name. Anything
 /// else is copied. Char-based so non-ASCII text never splits.
 pub fn format_date(fmt: &str, y: u32, mon: u32, day: u32, wday: u32) -> String {
-    const WD: [&str; 7] = [
-        "Sunday",
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-    ];
-    const MO: [&str; 12] = [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    ];
+    let (wd_names, wd_short, mo_names, mo_short) = if i18n::language() == "vi" {
+        (
+            [
+                "Chủ nhật",
+                "Thứ hai",
+                "Thứ ba",
+                "Thứ tư",
+                "Thứ năm",
+                "Thứ sáu",
+                "Thứ bảy",
+            ],
+            ["CN", "T2", "T3", "T4", "T5", "T6", "T7"],
+            [
+                "Tháng một",
+                "Tháng hai",
+                "Tháng ba",
+                "Tháng tư",
+                "Tháng năm",
+                "Tháng sáu",
+                "Tháng bảy",
+                "Tháng tám",
+                "Tháng chín",
+                "Tháng mười",
+                "Tháng mười một",
+                "Tháng mười hai",
+            ],
+            [
+                "Th1", "Th2", "Th3", "Th4", "Th5", "Th6", "Th7", "Th8", "Th9", "Th10", "Th11",
+                "Th12",
+            ],
+        )
+    } else {
+        (
+            [
+                "Sunday",
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+            ],
+            ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+            [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ],
+            [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ],
+        )
+    };
     let chars: Vec<char> = fmt.chars().collect();
     let at = |i: usize, tok: &str| {
         tok.chars()
@@ -458,13 +497,12 @@ pub fn format_date(fmt: &str, y: u32, mon: u32, day: u32, wday: u32) -> String {
         i.and_then(|i| chars.get(i))
             .is_some_and(|c| c.is_alphabetic())
     };
-    let wd = WD.get(wday as usize).copied().unwrap_or("");
-    let mo = (mon as usize)
-        .checked_sub(1)
-        .and_then(|i| MO.get(i))
-        .copied()
-        .unwrap_or("");
-    let short = |s: &str| s.chars().take(3).collect::<String>();
+    let wd_i = wday as usize;
+    let mo_i = (mon as usize).checked_sub(1);
+    let wd = wd_names.get(wd_i).copied().unwrap_or("");
+    let wd_short = wd_short.get(wd_i).copied().unwrap_or("");
+    let mo = mo_i.and_then(|i| mo_names.get(i)).copied().unwrap_or("");
+    let mo_short = mo_i.and_then(|i| mo_short.get(i)).copied().unwrap_or("");
     let mut out = String::new();
     let mut i = 0;
     while i < chars.len() {
@@ -475,13 +513,13 @@ pub fn format_date(fmt: &str, y: u32, mon: u32, day: u32, wday: u32) -> String {
         } else if at(i, "MMMM") {
             (mo.to_string(), 4)
         } else if at(i, "MMM") {
-            (short(mo), 3)
+            (mo_short.to_string(), 3)
         } else if at(i, "MM") {
             (format!("{mon:02}"), 2)
         } else if at(i, "dddd") {
             (wd.to_string(), 4)
         } else if at(i, "ddd") {
-            (short(wd), 3)
+            (wd_short.to_string(), 3)
         } else if at(i, "dd") {
             (format!("{day:02}"), 2)
         } else if chars[i] == 'd' && !letter(i.checked_sub(1)) && !letter(Some(i + 1)) {
@@ -5808,6 +5846,8 @@ floating = true"
 
     #[test]
     fn clock_and_date_formats_keep_old_output_and_add_tokens() {
+        let _lock = i18n::TEST_LOCK.lock().unwrap();
+        i18n::set_language("en");
         // Golden values of the WM's formatters before they moved here.
         assert_eq!(format_clock("HH:mm", true, 9, 5, 7), "09:05");
         assert_eq!(format_clock("", true, 21, 41, 0), "21:41");
@@ -5831,6 +5871,13 @@ floating = true"
             "Saturday 24 October"
         );
         assert_eq!(format_date("d/MM/yyyy", 2026, 3, 7, 6), "7/03/2026");
+        i18n::set_language("vi");
+        assert_eq!(format_date("ddd dd MMM", 2026, 10, 4, 0), "CN 04 Th10");
+        assert_eq!(
+            format_date("dddd d MMMM", 2026, 10, 24, 6),
+            "Thứ bảy 24 Tháng mười"
+        );
+        i18n::set_language("en");
     }
 
     #[test]
