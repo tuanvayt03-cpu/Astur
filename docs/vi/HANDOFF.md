@@ -1,5 +1,15 @@
 # Astur VI — Handoff after in-place updater V2 (2026-10-29)
 
+## Notification pop-up regression — preview 2.4.0.6 (2026-10-29)
+
+- User reports the top-edge messaging notification still affects Astur's tiling after prior preview; the accepted Vietnamese UI requires no further translation work. Baseline `6ac8090`, clean `feat/vi-full-update-popup-v2` at start.
+- The 2.4.0.5 filter only exempted small surfaces carrying `WS_POPUP` or `WS_EX_LAYERED` and rejected any `WS_CAPTION` or `WS_SYSMENU`. That permits certain custom-drawn short top-edge banners to be adopted. A **conservative hypothesis**, not yet confirmed against the originating notification HWND; screenshot alone contains no Win32 style metadata.
+- New detection accepts only unusually shallow/compact rectangles flush within 24 px of a monitor top/bottom edge and within the monitor horizontal span. Caption/system-menu windows require an extra TOPMOST/LAYERED signal, while child, resizable/minimize/maximize and APPWINDOW windows remain rejected as overlays. The routine never mutates the notification, only excludes its handle from Astur's tiling/tab registry.
+- Added synthetic Rust regressions for the screenshot's approximate top-edge geometry (350×80 at x=180,y=0, 1920×1080 display), unstyled shallow banners, captioned topmost banners and normal/interior/main-window counterexamples. No app-name/title blacklist.
+- **Critical E2E gap:** read-only HWND sampler observed 34 windows over 60 seconds, but no live notification from Zalo or a messenger. `tasklist` on the connected Windows session showed `astur-settings.exe` but **no running `astur.exe`**. The user screenshot cannot prove the currently installed binary/manager process, and no live E2E PASS is claimed. Do not launch the manager or change desktop layout/config to force reproduction.
+- Fresh pre-CI source checks: `python scripts/test_i18n_inventory.py` PASS (819 entries), `python scripts/test_upgrade_packaging.py` PASS, `git diff --check` exit 0; local rustfmt/cargo unavailable in PATH, so Windows GitHub Actions must verify Rust fmt, clippy, workspace unit tests, release build, UI renders, installer upgrade safety and release checksum. Preview 2.4.0.6 is a distinct immutable tag and preserves the first 2.4.0.1 rollback backup.
+- Next acceptance for notification: ensure the intended `Astur.exe` build is running, capture actual metadata of a visible Zalo/messenger notification with `scripts/capture_notification_windows.py`, and confirm it floats independently without resizing 2/4/6 tiled main windows. If real HWND does not meet this heuristic, re-diagnose rather than blindly widening the exclusion.
+
 ## Verified release checkpoint — 2.4.0.5 (2026-10-29)
 
 - **Authoritative binary source**: `c02713fbd8d0dc92e62023c9ced315a3ac81336d` on `feat/vi-full-update-popup-v2`. Windows CI runs `40853948315` and `40853958418` both **SUCCESS**; preview upgrade/release workflow `40853948281` **SUCCESS** including fmt, Clippy, all workspace tests, 78 bilingual Settings images, Windows x64 release compilation, Inno Setup installer, isolated in-place upgrade, original-config/rollback checks, checksum, and publication.

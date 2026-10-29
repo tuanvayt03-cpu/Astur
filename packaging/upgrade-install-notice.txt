@@ -1,4 +1,4 @@
-ASTUR VI UPDATE 2.4.0.5 (PREVIEW)
+ASTUR VI UPDATE 2.4.0.6 (PREVIEW)
 
 This installer UPDATES the existing Astur English installation IN PLACE.
 It is an experimental fork, NOT an official stable upstream release.
@@ -24,8 +24,9 @@ Vietnamese Settings is the default for users without a locale preference.
 The 819-entry catalog now covers all 14 Settings pages and more dynamic help,
 validation, launcher and native menu text; English remains selectable.
 Source-level coverage is not proof of every on-screen string.
-Popup overlays are detected with a wider set of styles without suppressing
-or hiding notifications. These app-specific fixes still require live E2E.
+Very shallow notifications anchored to the top/bottom screen edge are kept
+out of Astur's tiling/tab registry without muting or hiding them.
+The real Zalo/other messenger notification case still requires live E2E.
 
 LICENSE AND SECURITY
 Apache-2.0 license and third-party notices are included.

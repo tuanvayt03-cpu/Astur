@@ -5054,13 +5054,10 @@ fn show_rejected_by_style(style: u32, exstyle: u32) -> bool {
 /// and desktop-relative geometry, never by app/process/title language. In
 /// particular: some Electron/Chromium notifications are NOT WS_EX_TOPMOST.
 fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT) -> bool {
-    if style
-        & (WS_CAPTION.0
-            | WS_THICKFRAME.0
-            | WS_SYSMENU.0
-            | WS_MINIMIZEBOX.0
-            | WS_MAXIMIZEBOX.0
-            | WS_CHILD.0)
+    // Real resizable/main app windows are never notification surfaces.
+    // A tiny edge banner can carry WS_CAPTION or WS_SYSMENU even when its
+    // custom-drawn frame shows no caption; evaluate those bits after geometry.
+    if style & (WS_THICKFRAME.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0 | WS_CHILD.0)
         != 0
         || exstyle & WS_EX_APPWINDOW.0 != 0
     {
@@ -5088,14 +5085,31 @@ fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
     let popup = style & WS_POPUP.0 != 0;
     let topmost = exstyle & WS_EX_TOPMOST.0 != 0;
     let layered = exstyle & WS_EX_LAYERED.0 != 0;
-    // Popups must remain displayed normally; this only skips Astur adoption.
-    // Some browser/messenger banners sit near the middle of the top or bottom
-    // edge without TOPMOST/LAYERED bits, so a corner-only rule can tile them.
-    // Require a compact, borderless popup touching the monitor's vertical edge;
-    // ordinary small interior popups and captioned dialogs stay manageable.
-    // Layered messenger banners may instead appear away from screen corners.
+    let has_chrome = style & (WS_CAPTION.0 | WS_SYSMENU.0) != 0;
+    // Some app-rendered notification banners do not set WS_POPUP, LAYERED or
+    // TOPMOST. Their reliable visible characteristic is a *very shallow*
+    // rectangle flush with a monitor's top/bottom edge. Require that the
+    // entire rectangle is on this monitor, including a small DWM shadow.
+    // This narrow fallback avoids treating ordinary dialogs and mini-apps as
+    // notifications merely because they happen to be compact.
+    let flush_edge = (rect.top >= monitor.top - 32 && rect.top <= monitor.top + 24)
+        || (rect.bottom >= monitor.bottom - 24 && rect.bottom <= monitor.bottom + 32);
+    let within_horizontal_bounds =
+        rect.left >= monitor.left - 32 && rect.right <= monitor.right + 32;
+    let shallow_edge_banner = flush_edge
+        && within_horizontal_bounds
+        && width * 3 <= screen_width
+        && height * 8 <= screen_height;
+    // A captioned/system-menu window is presumptively a dialog, except when a
+    // second overlay signal (TOPMOST/LAYERED) also confirms a shallow banner.
+    if has_chrome && !(shallow_edge_banner && (topmost || layered)) {
+        return false;
+    }
+    // We never hide, move, focus or suppress the toast: only skip Astur's
+    // tile/tab registry, leaving presentation to the originating app.
     (popup && (topmost || anchored || (at_vertical_edge && compact_banner)))
         || (layered && (topmost || anchored || compact_banner))
+        || shallow_edge_banner
 }
 
 /// Never ShowWindow/SetWindowPos here: notification display, click, animation
@@ -24870,6 +24884,50 @@ mod tests {
                 &screen
             ));
         }
+        // App-rendered Zalo/Chromium-style banner near the top edge. Some
+        // frameworks omit WS_POPUP/TOPMOST/LAYERED or retain caption bits.
+        let shallow_banner = RECT {
+            left: 180,
+            top: 0,
+            right: 530,
+            bottom: 80,
+        };
+        assert!(transient_overlay_shape(
+            0x1000_0000, // WS_VISIBLE, without WS_POPUP
+            0,
+            &shallow_banner,
+            &screen
+        ));
+        assert!(transient_overlay_shape(
+            WS_POPUP.0 | WS_CAPTION.0 | WS_SYSMENU.0,
+            WS_EX_TOPMOST.0,
+            &shallow_banner,
+            &screen
+        ));
+        assert!(!transient_overlay_shape(
+            WS_POPUP.0 | WS_CAPTION.0 | WS_SYSMENU.0,
+            0,
+            &shallow_banner,
+            &screen
+        ));
+        assert!(!transient_overlay_shape(
+            normal_main,
+            WS_EX_TOPMOST.0,
+            &shallow_banner,
+            &screen
+        ));
+        let interior_shallow = RECT {
+            left: 180,
+            top: 280,
+            right: 530,
+            bottom: 360,
+        };
+        assert!(!transient_overlay_shape(
+            0x1000_0000, // WS_VISIBLE, without WS_POPUP
+            0,
+            &interior_shallow,
+            &screen
+        ));
         let wide_top_window = RECT {
             left: 400,
             top: 0,
