@@ -1357,7 +1357,7 @@ impl App {
         if !f.on() {
             note(ui, &trf(
                 "Hold {name} and press the key shown. To change a shortcut, click its key and press the new one ({held} is added for you). Esc cancels, Backspace clears.",
-                &[("name", name), ("held", held)],
+                &[("name", name), ("held", held.as_str())],
             ));
         }
         section(ui, f, "Windows");
@@ -1376,7 +1376,7 @@ impl App {
         });
         let ws_desc = trf(
             "{held} + a workspace's key switches to it; with Shift it takes the active window there. Set them in the Workspaces table.",
-            &[("held", held)],
+            &[("held", held.as_str())],
         );
         row_noted(
             ui,
@@ -3148,7 +3148,11 @@ impl App {
                                     let label = match (old, new) {
                                         (Some(o), Some(n)) => trf(
                                             "Replace {old} = {old_value} with {new}",
-                                            &[("old", h), ("old_value", o), ("new", n)],
+                                            &[
+                                                ("old", h),
+                                                ("old_value", o.as_str()),
+                                                ("new", n.as_str()),
+                                            ],
                                         ),
                                         _ => trf("Rename to {key}", &[("key", h)]),
                                     };
@@ -3731,7 +3735,7 @@ fn scratch_window_row(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config) {
     if row_core(ui, f, meta, class != d.scratchpad_class, false, |ui| {
         picked = window_picker(ui);
         ui.label(RichText::new(tr(text)).color(sub(ui)))
-            .on_hover_text(trf("Window class: {class}", &[("class", class)]));
+            .on_hover_text(trf("Window class: {class}", &[("class", class.as_str())]));
     }) {
         c.scratchpad_class.clone_from(&d.scratchpad_class);
     }
@@ -3835,7 +3839,7 @@ fn key_row(
         changed = key_chip(ui, egui::Id::new(("bind", i)), v, None);
         ui.label(format!("{held} +"));
         if v.is_empty() {
-            let text = trf("No key: Astur keeps {key}", &[("key", vk_to_key(live))]);
+            let text = trf("No key: Astur keeps {key}", &[("key", &vk_to_key(live))]);
             ui.colored_label(ui.visuals().error_fg_color, text);
         }
     }) {
@@ -4937,7 +4941,7 @@ fn tile_hint(c: &Config) -> String {
     let toggle = vk_to_key(c.key_toggle_tiling);
     trf(
         "Off: Astur starts with tiling off, so every window floats as on plain Windows until you press {key}{toggle}. Takes effect the next time Astur starts.",
-        &[("key", key.as_str()), ("toggle", toggle)],
+        &[("key", key.as_str()), ("toggle", toggle.as_str())],
     )
 }
 

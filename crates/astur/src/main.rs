@@ -23385,9 +23385,9 @@ unsafe fn sysmenu_paint(h: HWND) {
             )],
         )
     } else if st.stack.is_empty() {
-        tr("Up/Down  •  Enter open  •  Esc close").to_string()
+        i18n::tr("Up/Down  •  Enter open  •  Esc close").to_string()
     } else {
-        tr("Up/Down  •  Enter run  •  ←/Esc back").to_string()
+        i18n::tr("Up/Down  •  Enter run  •  ←/Esc back").to_string()
     };
     SetTextColor(hdc, COLORREF(if st.confirm { p.selbg } else { p.dim }));
     let mut fr = RECT {
