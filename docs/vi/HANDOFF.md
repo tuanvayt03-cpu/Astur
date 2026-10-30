@@ -1,5 +1,15 @@
 # Astur VI — Handoff after in-place updater V2 (2026-10-29)
 
+## 2026-10-30 — Verified 2.4.0.10 preview; compact notification exclusion (LATEST)
+
+- **Source**: commit `a24a9e9ae4c4b77d96cb3768694d29cae84412bc` on `feat/vi-full-update-popup-v2`. Existing v2.4.0.9 release preserved. No user desktop, running apps or installed configurations were touched.
+- **Fresh Windows CI**: main run `41002027799` **SUCCESS** (Rustfmt, Clippy, all workspace unit tests, release build). Updater workflow `41002027926` **SUCCESS** (translation/upgrade safety contract, all workspace Rust tests, bilingual settings renders, native Windows x64 build, Inno Setup, upstream-AppId in-place upgrade smoke, backup verification, SHA256, publication).
+- **Verified GitHub prerelease**: https://github.com/tuanvayt03-cpu/Astur/releases/tag/astur-vi-update-2.4.0.10 . Assets: `Astur-VI-Update-Setup-2.4.0.10.exe` (4,465,375 bytes) and `SHA256SUMS.txt` (102 bytes). Release `target_commitish` equals source SHA.
+- **Functional fix**: bypass short top/bottom monitor-edge native notifications with no true resizing/minimize/maximize controls even if their framework advertises `WS_EX_APPWINDOW` or cosmetic caption/menu flags. If an unmanaged HWND is recognized as a toast, SHOW/FOREGROUND/UNCLOAKED are ignored before manager queue; no tile/tab, no focus management; Windows/app owns appearance/dismissal. Full Zalo/Telegram/Chrome app windows and fullscreen feature remain unchanged. Regression added for screenshot-relative 350×80 at x115,y0; negative decorated-main test and event-boundary tests.
+- **Local checks**: Python translation inventory PASS (821 entries; 14 Settings pages), preview packaging contract PASS and `git diff --check` PASS. Windows CI provides actual Rust toolchain since local `cargo` command is unavailable.
+- **Critical limitation**: user notification screenshot lacks actual HWND class/style metadata; no live real Zalo/Telegram toast observed on installed 2.4.0.10. Real-world geometry stability remains **UNVERIFIED**. User should install the new preview, confirm `Astur.exe` running, trigger a normal notification with tiled windows, and check no layout resize/tab adoption. If still failing, capture read-only, sanitized `scripts/capture_notification_windows.py` information during toast rather than widen heuristics blindly.
+- **Recovery protocol**: source release commit above; a subsequent docs-only checkpoint may advance branch HEAD. Fresh `git status`, `git log` after commit/push remain the definitive baseline.
+
 ## 2026-10-30 — Compact messenger notification completely bypassed (preview 2.4.0.10 candidate)
 
 - **Baseline**: `196f252`, clean `feat/vi-full-update-popup-v2`, prior release `2.4.0.9`. User reports new 350×80-ish top-edge group message toast still shifting tile/page after preview 2.4.0.9; screenshot near x=115, y=0. Exact HWND style/class is NOT known from screenshot. Only popup handling changed; all native fullscreen, language and layout features retained.
