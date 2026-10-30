@@ -5218,7 +5218,9 @@ unsafe fn app_window_reject(hwnd: HWND) -> Option<&'static str> {
 /// an unowned, undecorated WS_POPUP is also not a normal tile.
 fn independent_media_popup_shape(style: u32, exstyle: u32) -> bool {
     style & WS_POPUP.0 != 0
-        && style & (WS_CAPTION.0 | WS_THICKFRAME.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0 | WS_CHILD.0) == 0
+        && style
+            & (WS_CAPTION.0 | WS_THICKFRAME.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0 | WS_CHILD.0)
+            == 0
         && exstyle & WS_EX_APPWINDOW.0 == 0
 }
 
@@ -5247,13 +5249,21 @@ unsafe fn independent_native_surface(hwnd: HWND) -> bool {
 }
 
 fn independent_seen(h: isize) -> bool {
-    INDEPENDENT_HWND.lock().unwrap().as_ref().is_some_and(|s| s.contains(&h))
+    INDEPENDENT_HWND
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|s| s.contains(&h))
 }
 
 fn independent_remember(h: isize, remember: bool) -> bool {
     let mut slot = INDEPENDENT_HWND.lock().unwrap();
     let known = slot.get_or_insert_with(HashSet::new);
-    if remember { known.insert(h) } else { known.remove(&h) }
+    if remember {
+        known.insert(h)
+    } else {
+        known.remove(&h)
+    }
 }
 
 /// Is this a normal top-level application window we should tile?
@@ -5266,9 +5276,7 @@ unsafe fn manage_reject(hwnd: HWND) -> Option<&'static str> {
     if let Some(why) = app_window_reject(hwnd) {
         return Some(why);
     }
-    if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire)
-        && independent_native_surface(hwnd)
-    {
+    if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire) && independent_native_surface(hwnd) {
         return Some("independent-fullscreen-popup");
     }
     // After the cheap checks, so only a would-be tile pays the OpenProcess
@@ -12622,16 +12630,26 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     // Remember pre-existing fullscreen and media popups, then
                     // detach tracked native maximize surfaces before any retile.
                     let _ = EnumWindows(Some(independent_enum_proc), LPARAM(0));
-                    let tracked: Vec<isize> = mgr.monitors.iter().flat_map(|m| {
-                        m.workspaces.iter().flat_map(|ws| ws.windows.iter().copied())
-                    }).collect();
+                    let tracked: Vec<isize> = mgr
+                        .monitors
+                        .iter()
+                        .flat_map(|m| {
+                            m.workspaces
+                                .iter()
+                                .flat_map(|ws| ws.windows.iter().copied())
+                        })
+                        .collect();
                     for h in tracked {
                         reconcile_independence(mgr, h);
                     }
                 } else {
                     // Returning to ordinary Astur mode re-adopts live eligible
                     // windows, including those that were previously protected.
-                    INDEPENDENT_HWND.lock().unwrap().get_or_insert_with(HashSet::new).clear();
+                    INDEPENDENT_HWND
+                        .lock()
+                        .unwrap()
+                        .get_or_insert_with(HashSet::new)
+                        .clear();
                     assign_existing_windows(mgr);
                 }
             }
@@ -24973,8 +24991,14 @@ mod tests {
         assert!(!native_fullscreen_policy(false, false, WS_POPUP.0));
         assert!(independent_media_popup_shape(WS_POPUP.0, 0));
         assert!(!independent_media_popup_shape(normal_window, 0));
-        assert!(!independent_media_popup_shape(WS_POPUP.0, WS_EX_APPWINDOW.0));
-        assert!(!independent_media_popup_shape(WS_POPUP.0 | WS_THICKFRAME.0, 0));
+        assert!(!independent_media_popup_shape(
+            WS_POPUP.0,
+            WS_EX_APPWINDOW.0
+        ));
+        assert!(!independent_media_popup_shape(
+            WS_POPUP.0 | WS_THICKFRAME.0,
+            0
+        ));
     }
 
     #[test]

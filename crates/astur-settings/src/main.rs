@@ -6349,7 +6349,10 @@ fn conf_pairs(c: &Config) -> (Pairs, Pairs) {
         ("workspace_icons", c.workspace_icons.join(", ")),
         ("workspace_wallpapers", slots(&c.workspace_wallpapers)),
         ("start_tiled", b(c.start_tiled)),
-        ("independent_fullscreen_popups", b(c.independent_fullscreen_popups)),
+        (
+            "independent_fullscreen_popups",
+            b(c.independent_fullscreen_popups),
+        ),
         ("layout", c.layout.clone()),
         ("monitor_layouts", c.monitor_layouts.join(", ")),
         ("master_ratio", format!("{:.2}", c.master_ratio)),

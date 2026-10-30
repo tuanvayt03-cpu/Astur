@@ -48,7 +48,6 @@ pub struct HotkeyDef {
 pub struct Config {
     pub per_monitor: bool,        // true: Alt+1..9 switches focused monitor only
     pub start_tiled: bool,        // tile automatically on launch
-    pub independent_fullscreen_popups: bool, // opt-in: native maximize/F11 and transient media viewers
     pub outer_gap: i32,           // gap between windows and screen edge
     pub inner_gap: i32,           // gap between adjacent windows
     pub master_ratio: f32,        // fraction of width given to the master window
@@ -263,6 +262,8 @@ pub struct Config {
     pub bar_hover: bool,             // highlight the clickable item under the pointer
     pub bar_title_format: String,    // title widget: {title} {app}
     pub bar_title_bold: bool,        // title widget in a bold weight
+    /// Opt-in native maximize/F11 and transient photo/video popup independence.
+    pub independent_fullscreen_popups: bool,
 }
 
 /// Widget names accepted in the navbar `left` / `center` / `right` zone lists.
