@@ -1,5 +1,9 @@
 # Astur VI — Handoff after in-place updater V2 (2026-10-29)
 
+## 2026-10-30 — Zalo notification diagnostic (no WM code changes)
+
+Prepared `scripts/capture_zalo_popup_episodes.py` and `scripts/run_zalo_popup_capture.cmd`. The launcher collects up to 3 top/bottom-edge popup episodes for at most 30 minutes, writes HWND metadata and before/after geometry to `Desktop/Astur_Zalo_Popup_Diagnostics`, then exits with a FINISH notice. No message text, screenshots, window titles or application state changes. `--self-test` passed 9 classifier assertions; `--smoke` passed a real short Win32 scan and temporary JSON log cleanup (0/3 because no new popup during smoke). Shape candidates are not confirmed Zalo; live popup HWND evidence is still REQUIRED before fixing Astur. Source baseline `a7c0cb2`, branch `feat/vi-full-update-popup-v2`; no installer/release modified. If no real HWND appears, investigate embedded browser/OS notification surfaces before widening filters.
+
 ## 2026-10-30 — Verified 2.4.0.10 preview; compact notification exclusion (LATEST)
 
 - **Source**: commit `a24a9e9ae4c4b77d96cb3768694d29cae84412bc` on `feat/vi-full-update-popup-v2`. Existing v2.4.0.9 release preserved. No user desktop, running apps or installed configurations were touched.
