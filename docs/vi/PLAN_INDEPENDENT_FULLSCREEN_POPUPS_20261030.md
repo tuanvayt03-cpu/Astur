@@ -1,6 +1,6 @@
 # Astur: Independent fullscreen and transient media windows — Execution Plan (2026-10-30)
 
-Status: IMPLEMENTED IN SOURCE; WINDOWS CI PENDING. Baseline feat/vi-full-update-popup-v2, clean at 8c92131 before edits. Preview target 2.4.0.8 following an additional in-flight-placement race guard (2.4.0.7 is an intermediate CI commit); release must remain gated by Windows fmt/Clippy/tests/install smoke. All desktop E2E states explicitly UNVERIFIED until observed.
+Status: SOURCE / WINDOWS CI / UPDATER RELEASE COMPLETE at `b4bb09a` (2.4.0.8); live desktop popup/fullscreen acceptance UNVERIFIED. Baseline `8c92131`; source checkpoints `223afe6` -> `ed87e71` -> `b4bb09a` with race guard. Windows main CI `40993930106` and `40993934996` PASS; updater run `40993930178` PASS, installer & SHA256 publicly verified on immutable tag `astur-vi-update-2.4.0.8`. No installed app changed. Continue only from live real-window E2E and sanitized HWND evidence where needed.
 
 ## Contract / scope
 - One opt-in checkbox in Settings > Windows & Rules: preserve native maximized (Windows square button), F11/borderless fullscreen, and transient photo/video popup windows. Default OFF for upgrade safety.
