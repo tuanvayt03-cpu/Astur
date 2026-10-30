@@ -1,0 +1,39 @@
+ASTUR VI UPDATE 2.4.0.10 (PREVIEW)
+
+This installer UPDATES the existing Astur English installation IN PLACE.
+It is an experimental fork, NOT an official stable upstream release.
+
+BEFORE INSTALLING
+- Quit Astur VI Preview if it is running. Never run both managers together.
+- The original Astur installation will be replaced (same installer AppId
+  and installation directory), but your user settings and workspaces are kept.
+- Close Astur when the setup asks. The installer will offer to launch Astur
+  at the end; this is optional.
+
+ROLLBACK
+The installer backs up the existing Astur.exe, astur-settings.exe,
+astur.conf and navbar.conf (when present) to:
+%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.1
+The first backup is preserved if you reinstall this update.
+To roll back reliably, close Astur and run your original upstream Astur
+installer again. Do not run the original and fork simultaneously.
+The backup is available if you need your previous binary/settings.
+
+WHAT IS NEW
+Optional Windows & rules checkbox keeps native maximize/F11 windows and
+borderless photo/video popups outside Astur's tile/tab layout. The rest of
+the tiled windows keep normal per-window Windows focus and z-order.
+Compact EN/VI language dropdown is now in the top-right toolbar.
+Vietnamese Settings is the default for users without a locale preference.
+The 821-entry catalog now covers all 14 Settings pages and more dynamic help,
+validation, launcher and native menu text; English remains selectable.
+Source-level coverage is not proof of every on-screen string.
+Very shallow notifications anchored to the top/bottom screen edge are kept
+out of Astur's tiling/tab registry without muting or hiding them.
+The real Zalo/other messenger notification case still requires live E2E.
+
+LICENSE AND SECURITY
+Apache-2.0 license and third-party notices are included.
+The installer is unsigned; verify the source/checksum and decide whether to
+install. Never disable Windows Defender or SmartScreen to run a file.
+Source: https://github.com/tuanvayt03-cpu/Astur

@@ -13,8 +13,7 @@
 // flash and could briefly be tiled).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod i18n;
-use i18n::tr;
+use astur_config::i18n::{self, tr, trf};
 
 use astur_config::{
     apply_updates, chord_label, color_to_hex, compile_keys, config_path, default_config_text,
@@ -957,28 +956,6 @@ impl App {
             );
         });
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.label(tr("Language"));
-            let mut selected = i18n::language().to_string();
-            egui::ComboBox::from_id_salt("astur_ui_language")
-                .selected_text(if selected == "vi" {
-                    "Tiếng Việt"
-                } else {
-                    "English"
-                })
-                .width(125.0)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut selected, "en".to_owned(), "English");
-                    ui.selectable_value(&mut selected, "vi".to_owned(), "Tiếng Việt");
-                });
-            if selected != i18n::language() {
-                if let Err(error) =
-                    i18n::save(&self.paths[0].with_file_name("ui-language.txt"), &selected)
-                {
-                    self.error = Some(format!("Couldn't save display language: {error}"));
-                }
-            }
-        });
         ui.add_space(8.0);
         let search = ui.add(
             egui::TextEdit::singleline(&mut self.query)
@@ -1010,6 +987,30 @@ impl App {
             }
             ui.add_space(12.0);
         });
+    }
+
+    /// Compact header chooser; only show the alternate locale as an action.
+    fn language_menu(&mut self, ui: &mut Ui) {
+        let current = i18n::language();
+        let (shown, next, next_label) = if current == "vi" {
+            ("VI", "en", "EN")
+        } else {
+            ("EN", "vi", "VI")
+        };
+        let mut selected = current.to_string();
+        egui::ComboBox::from_id_salt("astur_ui_language")
+            .selected_text(shown)
+            .width(42.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut selected, next.to_owned(), next_label);
+            });
+        if selected != current {
+            if let Err(error) =
+                i18n::save(&self.paths[0].with_file_name("ui-language.txt"), &selected)
+            {
+                self.error = Some(format!("Couldn't save display language: {error}"));
+            }
+        }
     }
 
     fn header(&mut self, ui: &mut Ui) {
@@ -1045,20 +1046,27 @@ impl App {
                 }
                 if self.applied != self.session
                     && ui
-                        .button("Undo all")
+                        .button(tr("Undo all"))
                         .on_hover_text(tr("Undo all changes from this session"))
                         .clicked()
                 {
                     self.undo_all();
                 }
                 self.status(ui);
+                self.language_menu(ui);
             });
         });
         self.trial_banner(ui);
         let v = ui.visuals();
         let banner = match (&self.read_error, &self.error) {
-            (Some(e), _) => Some((v.warn_fg_color, format!("Read-only: {e}. Showing built-in defaults and writing nothing, so the file stays as it is. Save it as UTF-8 (or close the program holding it), then press Retry."))),
-            (None, Some(e)) => Some((v.error_fg_color, e.clone())),
+            (Some(e), _) => Some((
+                v.warn_fg_color,
+                trf(
+                    "Read-only: {error}. Showing built-in defaults and writing nothing, so the file stays as it is. Save it as UTF-8 (or close the program holding it), then press Retry.",
+                    &[("error", e)],
+                ),
+            )),
+            (None, Some(e)) => Some((v.error_fg_color, localize_runtime(e))),
             _ => None,
         };
         if let Some((color, text)) = banner {
@@ -1074,11 +1082,13 @@ impl App {
         let Some(t) = &self.trial else {
             return;
         };
-        let text = format!(
-            "New Astur key: {}. Keep it? Going back to {} in {} s.",
-            self.cfg.main_key.label(),
-            t.from.label(),
-            secs_left(t.until, Instant::now())
+        let text = trf(
+            "New Astur key: {new}. Keep it? Going back to {old} in {seconds} s.",
+            &[
+                ("new", tr(self.cfg.main_key.label())),
+                ("old", tr(t.from.label())),
+                ("seconds", &secs_left(t.until, Instant::now()).to_string()),
+            ],
         );
         let (mut keep, mut back) = (false, false);
         ui.add_space(6.0);
@@ -1165,9 +1175,9 @@ impl App {
             self.page_ui(ui, page);
         }
         if self.find.hits == 0 {
-            ui.label(format!(
-                "No settings match \u{201C}{}\u{201D}.",
-                self.query.trim()
+            ui.label(trf(
+                "No settings match {query}.",
+                &[("query", &format!("\u{201C}{}\u{201D}", self.query.trim()))],
             ));
         }
         if let Some(page) = self.find.goto.take() {
@@ -1220,10 +1230,13 @@ impl App {
             Some(e) => (false, format!("Read-only: {e}")),
             None if unknown > 0 => (
                 false,
-                format!(
-                    "{unknown} config line{} not understood, so {} nothing",
-                    if unknown == 1 { "" } else { "s" },
-                    if unknown == 1 { "it does" } else { "they do" }
+                trf(
+                    "{count} config line{s} not understood, so {verb} nothing",
+                    &[
+                        ("count", &unknown.to_string()),
+                        ("s", if unknown == 1 { "" } else { "s" }),
+                        ("verb", if unknown == 1 { "it does" } else { "they do" }),
+                    ],
                 ),
             ),
             None => (true, "Both config files OK".to_string()),
@@ -1242,7 +1255,7 @@ impl App {
                             .color(color),
                     );
                 }
-                ui.label(text);
+                ui.label(localize_runtime(&text));
                 if !ok {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         review = ui.button(tr("Review")).clicked();
@@ -1262,7 +1275,10 @@ impl App {
             "off"
         };
         let (mut preset, mut all_keys) = (None, false);
-        let launcher = format!("App launcher ({}Space)", mk(&self.cfg));
+        let launcher = trf(
+            "App launcher ({key}Space)",
+            &[("key", mk(&self.cfg).as_str())],
+        );
         let tile = tile_hint(&self.cfg);
         // The health card above stays clickable when read-only (page_ui
         // leaves Home enabled); the settings below do not.
@@ -1284,8 +1300,11 @@ impl App {
             section(ui, f, "How to use Astur");
             card(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let key = c.main_key.label();
-                    ui.label(format!("Hold {key}, the Astur key, for every shortcut below."));
+                    let key = tr(c.main_key.label());
+                    ui.label(trf(
+                        "Hold {key}, the Astur key, for every shortcut below.",
+                        &[("key", key)],
+                    ));
                     all_keys |= ui.link(tr("Change")).clicked();
                 });
                 ui.add_space(4.0);
@@ -1295,7 +1314,7 @@ impl App {
                     .show(ui, |ui| {
                         for (keys, what) in tips(c) {
                             ui.label(RichText::new(keys).family(semibold()));
-                            ui.label(RichText::new(what).color(sub(ui)));
+                            ui.label(RichText::new(tr(what)).color(sub(ui)));
                             ui.end_row();
                         }
                     });
@@ -1322,7 +1341,7 @@ impl App {
         if ui
             .add_enabled(
                 self.applied != self.session,
-                egui::Button::new("Undo all changes from this session"),
+                egui::Button::new(tr("Undo all changes from this session")),
             )
             .clicked()
         {
@@ -1335,11 +1354,14 @@ impl App {
         let (c, d, f) = (&mut self.cfg, &self.def, &mut self.find);
         let (m, dm) = (&mut self.mir, &self.def_mir);
         let issues = compile_keys(c).issues;
-        let (k, held, name) = (mk(c), held(c), c.main_key.label());
+        let (k, held, name) = (mk(c), held(c), tr(c.main_key.label()));
         let live = binds(c);
         let (mut keys, mut go_ws) = (false, false);
         if !f.on() {
-            note(ui, &format!("Hold {name} and press the key shown. To change a shortcut, click its key and press the new one ({held} is added for you). Esc cancels, Backspace clears."));
+            note(ui, &trf(
+                "Hold {name} and press the key shown. To change a shortcut, click its key and press the new one ({held} is added for you). Esc cancels, Backspace clears.",
+                &[("name", name), ("held", held.as_str())],
+            ));
         }
         section(ui, f, "Windows");
         for (i, &meta) in BINDS.iter().enumerate().take(8) {
@@ -1355,7 +1377,10 @@ impl App {
         let ws_notes = notes(&issues, |x| {
             matches!(x.action, Action::SwitchWorkspace | Action::MoveToWorkspace)
         });
-        let ws_desc = format!("{held} + a workspace's key switches to it; with Shift it takes the active window there. Set them in the Workspaces table.");
+        let ws_desc = trf(
+            "{held} + a workspace's key switches to it; with Shift it takes the active window there. Set them in the Workspaces table.",
+            &[("held", held.as_str())],
+        );
         row_noted(
             ui,
             f,
@@ -1371,12 +1396,18 @@ impl App {
         section(ui, f, "Launch apps");
         let apps = APPS.get();
         let terminal = (
-            format!("Terminal ({k}Enter)"),
-            format!("The command-line app {k}Enter opens. The list shows the ones on this PC."),
+            trf("Terminal ({key}Enter)", &[("key", k.as_str())]),
+            trf(
+                "The command-line app {key}Enter opens. The list shows the ones on this PC.",
+                &[("key", k.as_str())],
+            ),
         );
         let browser = (
-            format!("Browser ({k}Shift+Enter)"),
-            format!("The web browser {k}Shift+Enter opens. System default is the one Windows opens links with."),
+            trf("Browser ({key}Shift+Enter)", &[("key", k.as_str())]),
+            trf(
+                "The web browser {key}Shift+Enter opens. System default is the one Windows opens links with.",
+                &[("key", k.as_str())],
+            ),
         );
         choice_row(
             ui,
@@ -1409,7 +1440,10 @@ impl App {
             &[]
         };
         let (main, ws) = (c.main_key, c.workspaces);
-        let extra_desc = format!("Hold {name} (or the keys you switch on) and press a key to run an action. A custom shortcut wins over Astur's own keys, except the launcher and power menu ones.");
+        let extra_desc = trf(
+            "Hold {name} (or the keys you switch on) and press a key to run an action. A custom shortcut wins over Astur's own keys, except the launcher and power menu ones.",
+            &[("name", name)],
+        );
         if table(
             ui,
             f,
@@ -1430,7 +1464,10 @@ impl App {
         }
         more(ui, f, "shortcuts", |ui, f| {
             section(ui, f, "Commands");
-            let terminal = format!("What {k}Enter runs, typed out: for an app with options, e.g. wt -p Ubuntu. Put a path with spaces in quotes when options follow it.");
+            let terminal = trf(
+                "What {key}Enter runs, typed out: for an app with options, e.g. wt -p Ubuntu. Put a path with spaces in quotes when options follow it.",
+                &[("key", k.as_str())],
+            );
             text(
                 ui,
                 f,
@@ -1438,7 +1475,10 @@ impl App {
                 &mut c.terminal,
                 &d.terminal,
             );
-            let browser = format!("What {k}Shift+Enter runs. Empty: the system default browser.");
+            let browser = trf(
+                "What {key}Shift+Enter runs. Empty: the system default browser.",
+                &[("key", k.as_str())],
+            );
             text(
                 ui,
                 f,
@@ -1466,7 +1506,7 @@ impl App {
                         for (keys, what, acts) in fixed(c) {
                             ui.label(RichText::new(keys).family(semibold()));
                             ui.vertical(|ui| {
-                                ui.label(RichText::new(what).color(sub(ui)));
+                                ui.label(RichText::new(tr(what)).color(sub(ui)));
                                 note_labels(ui, &notes(&issues, |x| acts.contains(&x.action)));
                             });
                             ui.end_row();
@@ -1481,14 +1521,14 @@ impl App {
                     .show(ui, |ui| {
                         for (keys, what) in mouse(c) {
                             ui.label(RichText::new(keys).family(semibold()));
-                            ui.label(RichText::new(what).color(sub(ui)));
+                            ui.label(RichText::new(tr(what)).color(sub(ui)));
                             ui.end_row();
                         }
                     });
             });
             ui.add_space(8.0);
             if ui
-                .button("Copy cheat sheet")
+                .button(tr("Copy cheat sheet"))
                 .on_hover_text(tr("Every shortcut as plain text, for a note or a printout"))
                 .clicked()
             {
@@ -1558,11 +1598,11 @@ impl App {
             let before = c.monitor_layouts.get(i).cloned().unwrap_or_default();
             let mut cur = before.clone();
             let label = match i {
-                0 => "Monitor 1 (leftmost)".to_string(),
-                i => format!("Monitor {}", i + 1),
+                0 => tr("Monitor 1 (leftmost)").to_string(),
+                i => trf("Monitor {n}", &[("n", &(i + 1).to_string())]),
             };
             let desc = if i == 0 {
-                "Monitors are counted from left to right, here and in window rules. A layout shortcut changes only the monitor you are on."
+                tr("Monitors are counted from left to right, here and in window rules. A layout shortcut changes only the monitor you are on.")
             } else {
                 ""
             };
@@ -1610,8 +1650,11 @@ impl App {
                 ("on-overflow", "Only when it doesn't fit"),
             ],
         );
-        let label = format!("Column widths ({width})");
-        let desc = format!("The widths {width} steps through, as a share of the screen.");
+        let label = trf("Column widths ({width})", &[("width", width.as_str())]);
+        let desc = trf(
+            "The widths {width} steps through, as a share of the screen.",
+            &[("width", width.as_str())],
+        );
         shares_row(
             ui,
             f,
@@ -1619,8 +1662,11 @@ impl App {
             (&mut c.scroll_width_presets, &d.scroll_width_presets),
             10..=100,
         );
-        let label = format!("Window heights ({height})");
-        let desc = format!("The heights {height} steps through, for a window sharing a column.");
+        let label = trf("Window heights ({height})", &[("height", height.as_str())]);
+        let desc = trf(
+            "The heights {height} steps through, for a window sharing a column.",
+            &[("height", height.as_str())],
+        );
         shares_row(
             ui,
             f,
@@ -1629,7 +1675,10 @@ impl App {
             10..=90,
         );
         more(ui, f, "layout", |ui, f| {
-            let desc = format!("The tab strip of a tabbed column ({tab}).");
+            let desc = trf(
+                "The tab strip of a tabbed column ({tab}).",
+                &[("tab", tab.as_str())],
+            );
             num(
                 ui,
                 f,
@@ -1727,6 +1776,17 @@ impl App {
         } else {
             ui.add_enabled_ui(false, alt_tab);
         }
+        toggle(
+            ui,
+            f,
+            (
+                "Keep fullscreen and media popups independent",
+                "Maximized and F11 fullscreen windows keep their own size. Photo/video viewer popups stay outside Astur's tiles and tabs. Clicked tiles appear above fullscreen individually in normal Windows order; restoring a fullscreen window lets Astur manage it again.",
+                "independent_fullscreen_popups",
+            ),
+            &mut c.independent_fullscreen_popups,
+            d.independent_fullscreen_popups,
+        );
         section(ui, f, "Rules");
         if table(
             ui,
@@ -1956,7 +2016,7 @@ impl App {
             |ui, v| {
                 seg(ui, v, &MOTION_OPTS);
                 if *v == "custom" {
-                    ui.label(RichText::new("Custom").color(sub(ui)));
+                    ui.label(RichText::new(tr("Custom")).color(sub(ui)));
                 }
             },
         );
@@ -1971,7 +2031,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.colored_label(
                         ui.visuals().warn_fg_color,
-                        "An old setting (workspace_slide = false) turns workspace animation off.",
+                        tr("An old setting (workspace_slide = false) turns workspace animation off."),
                     );
                     fix = ui.button(tr("Fix")).clicked();
                 });
@@ -2075,7 +2135,7 @@ impl App {
             } else if c.yasb_enabled {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
-                        RichText::new("YASB shows Astur's workspaces once it is set up under")
+                        RichText::new(tr("YASB shows Astur's workspaces once it is set up under"))
                             .color(sub(ui)),
                     );
                     go_yasb = ui.link(tr("Integrations")).clicked();
@@ -2473,7 +2533,10 @@ impl App {
     }
 
     fn launcher(&mut self, ui: &mut Ui) {
-        let label = format!("App launcher ({}Space)", mk(&self.cfg));
+        let label = trf(
+            "App launcher ({key}Space)",
+            &[("key", mk(&self.cfg).as_str())],
+        );
         let (c, d, f) = (&mut self.cfg, &self.def, &mut self.find);
         let (m, dm) = (&mut self.mir, &self.def_mir);
         toggle(
@@ -2785,7 +2848,10 @@ impl App {
     }
 
     fn power(&mut self, ui: &mut Ui) {
-        let label = format!("Power menu ({}Shift+Space)", mk(&self.cfg));
+        let label = trf(
+            "Power menu ({key}Shift+Space)",
+            &[("key", mk(&self.cfg).as_str())],
+        );
         let (c, d, f) = (&mut self.cfg, &self.def, &mut self.find);
         let (m, dm) = (&mut self.mir, &self.def_mir);
         toggle(
@@ -2867,7 +2933,10 @@ impl App {
             .find(|h| h.action == "scratchpad")
             .and_then(|h| parse_chord(&h.chord, c.main_key))
             .map_or_else(|| "its shortcut".into(), |(m, vk)| chord_label(m, vk));
-        let desc = format!("An app (a terminal by default) that drops down over everything with {key} and hides again with the same key. Change the key under Shortcuts > Extra hotkeys.");
+        let desc = trf(
+            "An app (a terminal by default) that drops down over everything with {key} and hides again with the same key. Change the key under Shortcuts > Extra hotkeys.",
+            &[("key", key.as_str())],
+        );
         let (c, d, f) = (&mut self.cfg, &self.def, &mut self.find);
         section(ui, f, "Scratchpad");
         toggle(
@@ -2974,7 +3043,7 @@ impl App {
                     }
                 });
                 ui.add_space(8.0);
-                ui.label(RichText::new("Set up YASB").family(semibold()));
+                ui.label(RichText::new(tr("Set up YASB")).family(semibold()));
                 ui.label(tr("1. Turn on YASB workspaces above."));
                 ui.label(tr("2. Merge the widget YAML into YASB's config.yaml. If a widgets section already exists, add astur_workspaces inside it."));
                 ui.horizontal_wrapped(|ui| {
@@ -2985,8 +3054,8 @@ impl App {
                         ui.ctx().copy_text(YASB_WIDGET_CSS.to_string());
                     }
                 });
-                ui.label(RichText::new("The copied YAML uses the port shown above. Append the CSS to styles.css, or keep your existing GlazeWM workspace styles.").color(sub(ui)));
-                egui::CollapsingHeader::new("Preview widget YAML")
+                ui.label(RichText::new(tr("The copied YAML uses the port shown above. Append the CSS to styles.css, or keep your existing GlazeWM workspace styles.")).color(sub(ui)));
+                egui::CollapsingHeader::new(tr("Preview widget YAML"))
                     .id_salt("yasb-yaml")
                     .show(ui, |ui| {
                         egui::ScrollArea::horizontal().show(ui, |ui| ui.code(&yaml));
@@ -2998,7 +3067,7 @@ impl App {
                     ui.label(tr("page."));
                 });
                 ui.add_space(4.0);
-                ui.label(RichText::new("Uses YASB's GlazeWM workspace widget. GlazeWM itself must be stopped. Binding-mode and tiling-direction widgets are not supported.").color(sub(ui)));
+                ui.label(RichText::new(tr("Uses YASB's GlazeWM workspace widget. GlazeWM itself must be stopped. Binding-mode and tiling-direction widgets are not supported.")).color(sub(ui)));
             });
         }
         section(ui, f, "Scripts");
@@ -3072,10 +3141,11 @@ impl App {
                                 RichText::new(entry.replacen(": ", "  \u{00B7}  ", 1)).monospace(),
                             );
                             let why = match hint {
-                                Some(h) => {
-                                    format!("Not understood, so it does nothing. Did you mean {h}?")
-                                }
-                                None => "Not understood, so it does nothing.".to_string(),
+                                Some(h) => trf(
+                                    "Not understood, so it does nothing. Did you mean {hint}?",
+                                    &[("hint", h)],
+                                ),
+                                None => tr("Not understood, so it does nothing.").to_string(),
                             };
                             ui.label(RichText::new(why).small().color(sub(ui)));
                         });
@@ -3090,8 +3160,15 @@ impl App {
                                     let old = text.and_then(|t| line_value(t, h));
                                     let new = text.and_then(|t| line_value(t, key));
                                     let label = match (old, new) {
-                                        (Some(o), Some(n)) => format!("Replace {h} = {o} with {n}"),
-                                        _ => format!("Rename to {h}"),
+                                        (Some(o), Some(n)) => trf(
+                                            "Replace {old} = {old_value} with {new}",
+                                            &[
+                                                ("old", h),
+                                                ("old_value", o.as_str()),
+                                                ("new", n.as_str()),
+                                            ],
+                                        ),
+                                        _ => trf("Rename to {key}", &[("key", h)]),
                                     };
                                     if ui.button(label).clicked() {
                                         fix = Some((entry.clone(), Some(h)));
@@ -3123,7 +3200,7 @@ impl App {
                     }
                 }
                 reload = ui
-                    .button("Reload from disk")
+                    .button(tr("Reload from disk"))
                     .on_hover_text(tr(
                         "Take the files as they are now (after editing them by hand)",
                     ))
@@ -3168,8 +3245,12 @@ impl App {
         }
         card(ui, |ui| {
             ui.label(
-                RichText::new(format!("Astur Settings {}", env!("CARGO_PKG_VERSION")))
-                    .family(semibold()),
+                RichText::new(format!(
+                    "{} {}",
+                    tr("Astur Settings"),
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .family(semibold()),
             );
             ui.label(tr("Edits astur.conf and navbar.conf. Changes apply as you make them and Astur reloads them live; Undo (Ctrl+Z) takes them back. Comments and hand edits in the files are kept."));
             ui.add_space(6.0);
@@ -3468,7 +3549,7 @@ fn choice_row(
     }
     if row_core(ui, f, meta, v != d, false, |ui| {
         egui::ComboBox::from_id_salt(id)
-            .selected_text(tr(&choice_label(v, opts, browse)).to_owned())
+            .selected_text(localized_choice_label(&choice_label(v, opts, browse)))
             .width(ui.available_width().min(300.0))
             .height(400.0)
             .truncate()
@@ -3518,7 +3599,7 @@ fn path_row(
         browse_button(ui, id, v, kind);
         ui.add(
             egui::TextEdit::singleline(v)
-                .hint_text(hint)
+                .hint_text(tr(hint))
                 .desired_width(ui.available_width())
                 .margin(FIELD_MARGIN),
         );
@@ -3667,8 +3748,8 @@ fn scratch_window_row(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config) {
     let mut picked = None;
     if row_core(ui, f, meta, class != d.scratchpad_class, false, |ui| {
         picked = window_picker(ui);
-        ui.label(RichText::new(text).color(sub(ui)))
-            .on_hover_text(format!("Window class: {class}"));
+        ui.label(RichText::new(tr(text)).color(sub(ui)))
+            .on_hover_text(trf("Window class: {class}", &[("class", class.as_str())]));
     }) {
         c.scratchpad_class.clone_from(&d.scratchpad_class);
     }
@@ -3702,20 +3783,20 @@ fn bar_style_row(
     );
     if row_core(ui, f, meta, now != BAR_PRESETS[0].name, false, |ui| {
         egui::ComboBox::from_id_salt("home-bar-style")
-            .selected_text(shown)
+            .selected_text(tr(shown))
             .width(ui.available_width().min(300.0))
             .show_ui(ui, |ui| {
                 for p in BAR_PRESETS {
                     if ui
-                        .selectable_label(now == p.name, p.label)
-                        .on_hover_text(p.blurb)
+                        .selectable_label(now == p.name, tr(p.label))
+                        .on_hover_text(tr(p.blurb))
                         .clicked()
                     {
                         apply = Some(p);
                     }
                 }
                 ui.separator();
-                if ui.selectable_label(now == "off", "No bar").clicked() {
+                if ui.selectable_label(now == "off", tr("No bar")).clicked() {
                     *bar_on = false;
                 }
             });
@@ -3744,7 +3825,7 @@ fn gaps_row(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config) {
         |ui, v| {
             seg(ui, v, &opts);
             if v == "custom" {
-                ui.label(RichText::new("Custom").color(sub(ui)));
+                ui.label(RichText::new(tr("Custom")).color(sub(ui)));
             }
         },
     );
@@ -3772,7 +3853,7 @@ fn key_row(
         changed = key_chip(ui, egui::Id::new(("bind", i)), v, None);
         ui.label(format!("{held} +"));
         if v.is_empty() {
-            let text = format!("No key: Astur keeps {}", vk_to_key(live));
+            let text = trf("No key: Astur keeps {key}", &[("key", &vk_to_key(live))]);
             ui.colored_label(ui.visuals().error_fg_color, text);
         }
     }) {
@@ -3804,10 +3885,10 @@ fn checklist_row(
                         .map_or(it.0.as_str(), |s| s.1);
                     // Arrows first, so they line up whatever the label.
                     tools(ui, i, n, false, &mut edit);
-                    switch(ui, &mut it.1, label);
-                    ui.label(RichText::new(&it.0).small().color(sub(ui)));
+                    switch(ui, &mut it.1, tr(label));
+                    ui.label(RichText::new(tr(&it.0)).small().color(sub(ui)));
                     if let Err(e) = item_check(it) {
-                        ui.colored_label(ui.visuals().error_fg_color, e);
+                        ui.colored_label(ui.visuals().error_fg_color, localize_runtime(&e));
                     }
                 });
             });
@@ -3847,13 +3928,13 @@ fn table<T: Clone + PartialEq>(
         }
         move_row(rows, edit);
         if rows.is_empty() {
-            ui.label(RichText::new("None yet.").color(sub(ui)));
+            ui.label(RichText::new(tr("None yet.")).color(sub(ui)));
         }
         if bad {
             warn_note(ui, "This list is applied once the red rows are fixed; until then Astur keeps its last good version.");
         }
         ui.add_space(4.0);
-        if ui.button(new.0).clicked() {
+        if ui.button(tr(new.0)).clicked() {
             rows.push(new.1);
         }
     }) {
@@ -3892,9 +3973,9 @@ fn ws_table(
                         egui::Label::new(RichText::new((i + 1).to_string()).family(semibold())),
                     );
                     cell(ui, &mut r.name, "Name", 140.0);
-                    cell(ui, &mut r.icon, "Icon", 64.0).on_hover_text(
+                    cell(ui, &mut r.icon, "Icon", 64.0).on_hover_text(tr(
                         "Shown on the bar instead of the name (optional): a letter or a symbol",
-                    );
+                    ));
                     ui.label(format!("{held} +"));
                     key_chip(ui, egui::Id::new(("ws-key", i)), &mut r.key, None);
                     cell(ui, &mut r.wallpaper, "Wallpaper picture (optional)", 220.0);
@@ -3952,16 +4033,17 @@ fn rule_ui(ui: &mut Ui, r: &mut RuleRow) -> Option<String> {
     if r.list {
         cell(ui, &mut r.rule.class, "Window class", 200.0)
             .on_hover_text(tr("Class only: * and ? are not read here"));
-        ui.label(RichText::new("older class list").small().color(sub(ui)))
+        ui.label(RichText::new(tr("older class list")).small().color(sub(ui)))
             .on_hover_text(if r.rule.action == "ignore" {
-                "Kept in ignore_classes, which matches by window class alone and is checked before every rule."
+                tr("Kept in ignore_classes, which matches by window class alone and is checked before every rule.")
             } else {
-                "Kept in float_classes, which matches by window class alone and applies only when no rule matches."
+                tr("Kept in float_classes, which matches by window class alone and applies only when no rule matches.")
             });
         return rule_check(r).err();
     }
-    cell(ui, &mut r.rule.exe, "App, e.g. notepad.exe", 170.0).on_hover_text(format!(
-        "The app's file name, or its full path. {wild} app."
+    cell(ui, &mut r.rule.exe, "App, e.g. notepad.exe", 170.0).on_hover_text(trf(
+        "The app's file name, or its full path. {wild} app.",
+        &[("wild", wild)],
     ));
     if let Some(w) = window_picker(ui) {
         (r.rule.exe, r.rule.class, r.rule.title) = rule_fields(&w);
@@ -3971,7 +4053,7 @@ fn rule_ui(ui: &mut Ui, r: &mut RuleRow) -> Option<String> {
     let mut open = used || ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     if !used
         && ui
-            .selectable_label(open, "Advanced")
+            .selectable_label(open, tr("Advanced"))
             .on_hover_text(tr("Match by the window's class or title too"))
             .clicked()
     {
@@ -3983,10 +4065,14 @@ fn rule_ui(ui: &mut Ui, r: &mut RuleRow) -> Option<String> {
     ui.end_row();
     if open {
         ui.add_space(128.0);
-        cell(ui, &mut r.rule.class, "Window class", 170.0)
-            .on_hover_text(format!("The window's class name. {wild} class."));
-        cell(ui, &mut r.rule.title, "Title contains", 190.0)
-            .on_hover_text(format!("Text in the window's title. {wild} title."));
+        cell(ui, &mut r.rule.class, "Window class", 170.0).on_hover_text(trf(
+            "The window's class name. {wild} class.",
+            &[("wild", wild)],
+        ));
+        cell(ui, &mut r.rule.title, "Title contains", 190.0).on_hover_text(trf(
+            "Text in the window's title. {wild} title.",
+            &[("wild", wild)],
+        ));
         ui.end_row();
     }
     ui.add_space(128.0);
@@ -4007,7 +4093,7 @@ fn place(ui: &mut Ui, v: &mut Option<usize>, what: &'static str, max: usize) -> 
             .clamp_existing_to_range(false)
             .custom_formatter(move |x, _| {
                 if x < 1.0 {
-                    format!("Any {what}")
+                    trf("Any {what}", &[("what", what)])
                 } else {
                     format!("{}{} {x}", what[..1].to_uppercase(), &what[1..])
                 }
@@ -4095,12 +4181,12 @@ fn hotkey_ui(
     let before = h.action.clone();
     let shown = action_info(&h.action).map_or(h.action.as_str(), |a| a.1);
     egui::ComboBox::from_id_salt("action")
-        .selected_text(shown)
+        .selected_text(tr(shown))
         .width(210.0)
         .height(360.0)
         .show_ui(ui, |ui| {
             for a in ACTIONS {
-                ui.selectable_value(&mut h.action, a.0.to_string(), a.1);
+                ui.selectable_value(&mut h.action, a.0.to_string(), tr(a.1));
             }
         });
     let arg = action_info(&h.action).map(|a| a.2);
@@ -4151,7 +4237,7 @@ fn hotkey_ui(
     if scratch {
         ui.colored_label(
             ui.visuals().warn_fg_color,
-            "Scratchpad is off (Desktop extras)",
+            tr("Scratchpad is off (Desktop extras)"),
         );
     }
     err
@@ -4166,11 +4252,11 @@ fn target_ui(ui: &mut Ui, kind: &mut Kind, value: &mut String) {
         .copied()
         .unwrap_or(KINDS[0]);
     egui::ComboBox::from_id_salt("kind")
-        .selected_text(label)
+        .selected_text(tr(label))
         .width(104.0)
         .show_ui(ui, |ui| {
             for &(k, l, _) in &KINDS {
-                ui.selectable_value(kind, k, l);
+                ui.selectable_value(kind, k, tr(l));
             }
         });
     cell(ui, value, hint, 200.0);
@@ -4188,9 +4274,9 @@ fn target_ui(ui: &mut Ui, kind: &mut Kind, value: &mut String) {
 /// from the menu beside it. `auto` (the target's own icon) is for launcher
 /// entries only.
 fn icon_ui(ui: &mut Ui, v: &mut String, auto: bool) {
-    cell(ui, v, "Icon", 90.0).on_hover_text(
+    cell(ui, v, "Icon", 90.0).on_hover_text(tr(
         "A built-in icon (pick one from the menu), or the path of an .ico, .png or .exe",
-    );
+    ));
     let icons = has_icons(ui);
     let id = ui.make_persistent_id("icon-file");
     if let Some(p) = take_pick(id) {
@@ -4434,7 +4520,7 @@ fn toggle_switch(ui: &mut Ui, on: &mut bool) -> egui::Response {
 fn switch(ui: &mut Ui, on: &mut bool, label: &str) {
     toggle_switch(ui, on);
     if ui
-        .add(egui::Label::new(label).sense(Sense::click()))
+        .add(egui::Label::new(tr(label)).sense(Sense::click()))
         .clicked()
     {
         *on = !*on;
@@ -4476,7 +4562,7 @@ fn item(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> Option<String>) {
             ui.set_width(ui.available_width());
             let problem = ui.horizontal_wrapped(add).inner;
             if let Some(p) = &problem {
-                ui.colored_label(ui.visuals().error_fg_color, p);
+                ui.colored_label(ui.visuals().error_fg_color, localize_runtime(p));
             }
             problem.is_some()
         });
@@ -4495,8 +4581,8 @@ fn item(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> Option<String>) {
 fn tools(ui: &mut Ui, i: usize, n: usize, delete: bool, edit: &mut Option<(usize, isize)>) {
     let icons = has_icons(ui);
     let mut button = |on: bool, icon: char, word: &str, step: isize| {
-        let b = egui::Button::new(glyph(icons, icon, word)).frame(false);
-        if ui.add_enabled(on, b).on_hover_text(word).clicked() {
+        let b = egui::Button::new(glyph(icons, icon, tr(word))).frame(false);
+        if ui.add_enabled(on, b).on_hover_text(tr(word)).clicked() {
             *edit = Some((i, step));
         }
     };
@@ -4523,7 +4609,7 @@ fn move_row<T>(rows: &mut Vec<T>, edit: Option<(usize, isize)>) {
 fn cell(ui: &mut Ui, v: &mut String, hint: &str, width: f32) -> egui::Response {
     let resp = ui.add(
         egui::TextEdit::singleline(v)
-            .hint_text(hint)
+            .hint_text(tr(hint))
             .desired_width(width)
             .margin(FIELD_MARGIN),
     );
@@ -4647,9 +4733,9 @@ fn key_chip(
         }
     }
     let text = if listening {
-        "Press a key".to_string()
+        tr("Press a key").to_string()
     } else if v.is_empty() {
-        "None".to_string()
+        tr("None").to_string()
     } else {
         key_label(v)
     };
@@ -4664,7 +4750,7 @@ fn key_chip(
                 .selected(listening)
                 .min_size(egui::vec2(56.0, 0.0)),
         )
-        .on_hover_text(tip);
+        .on_hover_text(tr(tip));
     if resp.clicked() {
         stop = listening;
         if !listening {
@@ -4688,8 +4774,143 @@ fn note_labels(ui: &mut Ui, notes: &[(Level, String)]) {
             Level::Warn => v.warn_fg_color,
             Level::Info => sub(ui),
         };
-        ui.label(RichText::new(text).small().color(color));
+        ui.label(RichText::new(localize_runtime(text)).small().color(color));
     }
+}
+
+fn localize_runtime(text: &str) -> String {
+    if text == "Files changed outside Settings; Undo restarted" {
+        return tr(text).to_owned();
+    }
+    if let Some(keys) = text
+        .strip_prefix("Saved, but Astur reads a different value for ")
+        .and_then(|s| s.strip_suffix(": another line sets it again (later in the file, or in the other file), or the value is not valid."))
+    {
+        return trf(
+            "Saved, but Astur reads a different value for {keys}: another line sets it again (later in the file, or in the other file), or the value is not valid.",
+            &[("keys", keys)],
+        );
+    }
+    if let Some(error) = text.strip_prefix("Preset not applied: couldn't back up navbar.conf: ") {
+        return trf(
+            "Preset not applied: couldn't back up navbar.conf: {error}",
+            &[("error", error)],
+        );
+    }
+    if let Some(error) = text.strip_prefix("Not saved: ") {
+        return trf("Not saved: {error}", &[("error", error)]);
+    }
+    if let Some(rest) = text.strip_prefix("Couldn't write ") {
+        if let Some((path, error)) = rest.split_once(": ") {
+            return trf(
+                "Couldn't write {path}: {error}",
+                &[("path", path), ("error", error)],
+            );
+        }
+    }
+    if let Some(error) = text.strip_prefix("Couldn't save display language: ") {
+        return trf(
+            "Couldn't save display language: {error}",
+            &[("error", error)],
+        );
+    }
+    if let Some(error) = text.strip_prefix("Read-only: ") {
+        return trf("Read-only: {error}", &[("error", error)]);
+    }
+    if let Some(chord) = text
+        .strip_prefix("Astur can't read ")
+        .and_then(|s| s.strip_suffix(": set its key again"))
+    {
+        return trf(
+            "Astur can't read {chord}: set its key again",
+            &[("chord", chord)],
+        );
+    }
+    if let Some(action) = text
+        .strip_prefix("Astur has no action \u{201C}")
+        .and_then(|s| s.strip_suffix("\u{201D}"))
+    {
+        return trf("Astur has no action {action}", &[("action", action)]);
+    }
+    if let Some(chord) = text.strip_suffix(
+        " has no Astur key, Alt or Win, so it does nothing. Set its key again to add the Astur key.",
+    ) {
+        return trf(
+            "{chord} has no Astur key, Alt or Win, so it does nothing. Set its key again to add the Astur key.",
+            &[("chord", chord)],
+        );
+    }
+    if let Some(key) = text.strip_prefix("No key: Astur keeps ") {
+        return trf("No key: Astur keeps {key}", &[("key", key)]);
+    }
+    if let Some(name) = text
+        .strip_prefix("Astur has no item \u{201C}")
+        .and_then(|s| s.strip_suffix("\u{201D}: untick it to drop it"))
+    {
+        return trf(
+            "Astur has no item {name}: untick it to drop it",
+            &[("name", name)],
+        );
+    }
+    if let Some(path) = text.strip_prefix("Window class: ") {
+        return trf("Window class: {class}", &[("class", path)]);
+    }
+    if let Some(rest) = text.strip_prefix("Not added: ") {
+        if let Some((path, tail)) = rest.split_once(" has a , or ; and this list is split at those. Type the end of its path instead, e.g. ") {
+            return trf(
+                "Not added: {path} has a , or ; and this list is split at those. Type the end of its path instead, e.g. {tail}",
+                &[("path", path), ("tail", tail)],
+            );
+        }
+    }
+    if let Some(rest) = text.strip_prefix("Workspace ") {
+        if let Some((n, tail)) = rest.split_once(" doesn't exist (you have ") {
+            if let Some(ws) = tail.strip_suffix("), so this does nothing.") {
+                return trf(
+                    "Workspace {n} doesn't exist (you have {ws}), so this does nothing.",
+                    &[("n", n), ("ws", ws)],
+                );
+            }
+        }
+    }
+    if let Some(rest) = text.strip_prefix("No ") {
+        if let Some((what, tail)) = rest.split_once(": the ") {
+            if tail == format!(
+                "{what}s after it would move up a workspace (the file can't skip one). Set one, or clear the later ones."
+            ) {
+                return trf(
+                    "No {what}: the {what}s after it would move up a workspace (the file can't skip one). Set one, or clear the later ones.",
+                    &[("what", what)],
+                );
+            }
+        }
+        if let Some(value) = rest.strip_suffix(" is not a key Astur can use here") {
+            return trf(
+                "{value} is not a key Astur can use here",
+                &[("value", value)],
+            );
+        }
+    }
+    if let Some(what) = text
+        .strip_prefix("A ")
+        .and_then(|s| s.strip_suffix(" can't contain , or ;"))
+    {
+        return trf("A {what} can't contain , or ;", &[("what", what)]);
+    }
+    tr(text).to_owned()
+}
+
+fn localized_issue(text: &str) -> String {
+    if let Some(reason) = text.strip_suffix(", so this does nothing") {
+        return trf("{reason}, so this does nothing", &[("reason", tr(reason))]);
+    }
+    if let Some(what) = text.strip_prefix("replaces Windows' own shortcut, which ") {
+        return trf(
+            "replaces Windows' own shortcut, which {what}",
+            &[("what", tr(what))],
+        );
+    }
+    tr(text).to_owned()
 }
 
 /// compile_keys' issues that `pick` keeps, as the lines a row shows: worst
@@ -4707,8 +4928,9 @@ fn notes(issues: &[BindIssue], pick: impl Fn(&BindIssue) -> bool) -> Vec<(Level,
     (out.into_iter())
         .map(|(level, text, chords)| {
             // "Win+L always locks the PC, ..." names its chord itself.
+            let text = localized_issue(text);
             if text.contains(chords[0]) {
-                (level, text.to_string())
+                (level, text)
             } else {
                 (level, format!("{}: {text}", chords.join(", ")))
             }
@@ -4729,7 +4951,12 @@ fn mk(c: &Config) -> String {
 const TILE_LABEL: &str = "Tile windows when Astur starts";
 
 fn tile_hint(c: &Config) -> String {
-    format!("Off: Astur starts with tiling off, so every window floats as on plain Windows until you press {}{}. Takes effect the next time Astur starts.", mk(c), vk_to_key(c.key_toggle_tiling))
+    let key = mk(c);
+    let toggle = vk_to_key(c.key_toggle_tiling);
+    trf(
+        "Off: Astur starts with tiling off, so every window floats as on plain Windows until you press {key}{toggle}. Takes effect the next time Astur starts.",
+        &[("key", key.as_str()), ("toggle", toggle.as_str())],
+    )
 }
 
 /// The Astur key before a key chip: "Alt", "Win+Ctrl".
@@ -4822,19 +5049,22 @@ fn key_picker(ui: &mut Ui, f: &mut Find, c: &Config) -> Option<MainKey> {
                 .inner_margin(Margin::symmetric(12, 8))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    let title = RichText::new(k.label()).family(semibold());
+                    let title = RichText::new(tr(k.label())).family(semibold());
                     radio = ui.radio(on, title).clicked();
                     let small = |t: &str| RichText::new(t).small().color(grey);
-                    ui.label(small(k.description()));
+                    ui.label(small(tr(k.description())));
                     if !caveat(k).is_empty() {
-                        ui.label(small(caveat(k)));
+                        ui.label(small(tr(caveat(k))));
                     }
                     if on && n > 0 {
-                        ui.label(small("Windows shortcuts it takes over:"));
+                        ui.label(small(tr("Windows shortcuts it takes over:")));
                         note_labels(ui, &lines);
                     } else if n > 0 {
                         let s = if n == 1 { "" } else { "s" };
-                        let text = format!("Takes over {n} Windows shortcut{s}");
+                        let text = trf(
+                            "Takes over {n} Windows shortcut{s}",
+                            &[("n", &n.to_string()), ("s", s)],
+                        );
                         let all: Vec<&str> = lines.iter().map(|l| l.1.as_str()).collect();
                         ui.label(RichText::new(text).small().color(warn))
                             .on_hover_text(all.join("\n"));
@@ -5000,11 +5230,11 @@ fn layout_picker(ui: &mut Ui, v: &mut String) {
             p.text(
                 egui::pos2(rect.center().x, rect.bottom() - 15.0),
                 egui::Align2::CENTER_CENTER,
-                name,
+                tr(name),
                 FontId::proportional(12.0),
                 vis.text_color(),
             );
-            if resp.on_hover_text(layout_help(l)).clicked() {
+            if resp.on_hover_text(tr(layout_help(l))).clicked() {
                 *v = l.to_string();
             }
         }
@@ -5453,7 +5683,10 @@ fn oem_glyphs(name: &str) -> Option<&'static str> {
 fn cheat_sheet(c: &Config) -> String {
     use Action::*;
     let binds = compile_keys(c).binds;
-    let mut lines = vec![format!("Astur shortcuts (hold {})", c.main_key.label())];
+    let mut lines = vec![trf(
+        "Astur shortcuts (hold {key})",
+        &[("key", tr(c.main_key.label()))],
+    )];
     let mut seen = Vec::new();
     for (title, group) in [
         ("Windows and layout", 0),
@@ -5485,20 +5718,24 @@ fn cheat_sheet(c: &Config) -> String {
                     format!("Workspace {}{name}", i + 1)
                 }
                 Extra => c.extra_hotkeys.get(i).map_or_else(String::new, |h| {
-                    let what = action_info(&h.action).map_or(h.action.as_str(), |a| a.1);
+                    let what = action_info(&h.action).map_or(h.action.as_str(), |a| tr(a.1));
                     format!("{what} {}", h.argument).trim_end().to_string()
                 }),
-                a => a.label().to_string(),
+                a => tr(a.label()).to_string(),
             };
             rows.push(format!("  {}  {what}", chord_label(b.mods, b.vk)));
         }
         if !rows.is_empty() {
-            lines.extend([String::new(), title.to_string()]);
+            lines.extend([String::new(), tr(title).to_string()]);
             lines.extend(rows);
         }
     }
-    lines.extend([String::new(), "Mouse".to_string()]);
-    lines.extend(mouse(c).iter().map(|(k, what)| format!("  {k}  {what}")));
+    lines.extend([String::new(), tr("Mouse").to_string()]);
+    lines.extend(
+        mouse(c)
+            .iter()
+            .map(|(k, what)| format!("  {k}  {}", tr(what))),
+    );
     lines.join("\n") + "\n"
 }
 
@@ -6112,6 +6349,10 @@ fn conf_pairs(c: &Config) -> (Pairs, Pairs) {
         ("workspace_icons", c.workspace_icons.join(", ")),
         ("workspace_wallpapers", slots(&c.workspace_wallpapers)),
         ("start_tiled", b(c.start_tiled)),
+        (
+            "independent_fullscreen_popups",
+            b(c.independent_fullscreen_popups),
+        ),
         ("layout", c.layout.clone()),
         ("monitor_layouts", c.monitor_layouts.join(", ")),
         ("master_ratio", format!("{:.2}", c.master_ratio)),
@@ -6777,7 +7018,11 @@ fn chip(ui: &mut Ui, src: Src, w: &str, selected: bool, hidden: bool) -> egui::R
     } else {
         desc
     };
-    resp.on_hover_text(format!("{tip} Drag to move it; click for its settings."))
+    resp.on_hover_text(format!(
+        "{} {}",
+        tr(tip),
+        tr("Drag to move it; click for its settings.")
+    ))
 }
 
 /// The three zones side by side, as drop targets holding their widgets'
@@ -6801,7 +7046,7 @@ fn zone_editor(ui: &mut Ui, c: &mut Config, sel: &mut Option<Src>) -> bool {
         .inner_margin(Margin::same(6));
     ui.columns(3, |cols| {
         for (z, ui) in cols.iter_mut().enumerate() {
-            ui.label(RichText::new(ZONES[z]).small().color(sub(ui)));
+            ui.label(RichText::new(tr(ZONES[z])).small().color(sub(ui)));
             let mut rects = Vec::new();
             let resp = frame
                 .show(ui, |ui| {
@@ -6818,7 +7063,7 @@ fn zone_editor(ui: &mut Ui, c: &mut Config, sel: &mut Option<Src>) -> bool {
                             rects.push(r.rect);
                         }
                         if chips.is_empty() {
-                            ui.label(RichText::new("Empty").small().color(sub(ui)));
+                            ui.label(RichText::new(tr("Empty")).small().color(sub(ui)));
                         }
                     });
                 })
@@ -6839,7 +7084,7 @@ fn zone_editor(ui: &mut Ui, c: &mut Config, sel: &mut Option<Src>) -> bool {
         }
     });
     ui.add_space(6.0);
-    ui.label(RichText::new("Not on the bar").small().color(sub(ui)));
+    ui.label(RichText::new(tr("Not on the bar")).small().color(sub(ui)));
     let resp = frame
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -6916,8 +7161,8 @@ fn widget_panel(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config, sel: &mut
     let mut to = None;
     card(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(label).family(semibold()));
-            ui.label(RichText::new(desc).color(sub(ui)));
+            ui.label(RichText::new(tr(label)).family(semibold()));
+            ui.label(RichText::new(tr(desc)).color(sub(ui)));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| match src {
                 Src::Zone(..) => {
                     if ui.button(tr("Take off the bar")).clicked() {
@@ -6926,7 +7171,7 @@ fn widget_panel(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config, sel: &mut
                 }
                 Src::Palette(_) => {
                     for (z, name) in ZONES.iter().enumerate().rev() {
-                        if ui.button(*name).clicked() {
+                        if ui.button(tr(name)).clicked() {
                             to = Some(Some((z, usize::MAX)));
                         }
                     }
@@ -7072,12 +7317,12 @@ fn widget_sample(
 /// "Shows" and a sample, after its glyph (one `drawable` passed); "nothing"
 /// for an empty one (the bar then skips the widget).
 fn sample_label(ui: &mut Ui, (glyph, text): (Option<char>, String)) {
-    ui.label(RichText::new("Shows").color(sub(ui)));
+    ui.label(RichText::new(tr("Shows")).color(sub(ui)));
     if let Some(g) = glyph {
         ui.label(RichText::new(g).font(FontId::new(14.0, icons_family())));
     }
     if text.trim().is_empty() && glyph.is_none() {
-        ui.label(RichText::new("nothing").color(sub(ui)));
+        ui.label(RichText::new(tr("nothing")).color(sub(ui)));
     } else {
         ui.label(RichText::new(text).family(semibold()));
     }
@@ -7198,7 +7443,7 @@ fn widget_rows(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config, w: &str) {
     // Ready-made formats as (format, what it shows); "Custom…" types one.
     let named = |opts: &[(&'static str, &str)], sample: &dyn Fn(&str) -> String| {
         (opts.iter())
-            .map(|&(v, what)| (v, format!("{} ({what})", sample(v))))
+            .map(|&(v, what)| (v, format!("{} ({})", sample(v), tr(what))))
             .collect::<Vec<_>>()
     };
     let reading = |w: &str| READINGS.iter().find(|r| r.0 == w).map_or(&[][..], |r| r.1);
@@ -7348,7 +7593,7 @@ fn format_pick(
             if !presets.is_empty() {
                 let shown = preset.map_or("Custom", |p| p.1.as_str());
                 egui::ComboBox::from_id_salt(id)
-                    .selected_text(shown)
+                    .selected_text(tr(shown))
                     .width(240.0)
                     .show_ui(ui, |ui| {
                         for (p, label) in presets {
@@ -7541,7 +7786,13 @@ fn monitors_row(ui: &mut Ui, f: &mut Find, v: &mut String, d: &str) {
             } else if now == "some" {
                 for s in 1..=n {
                     let mut on = list.contains(&s);
-                    if ui.checkbox(&mut on, format!("Screen {s}")).changed() {
+                    if ui
+                        .checkbox(
+                            &mut on,
+                            trf("Screen {screen}", &[("screen", &s.to_string())]),
+                        )
+                        .changed()
+                    {
                         if let Some(t) = toggle_screen(v, s) {
                             *v = t;
                         }
@@ -7608,15 +7859,15 @@ fn click_ui(
     let label = |a: &str| {
         let l = BAR_ACTIONS.iter().find(|x| x.0 == a).map_or(a, |x| x.1);
         if a == default {
-            format!("{l} (default)")
+            trf("{action} (default)", &[("action", tr(l))])
         } else {
-            l.to_string()
+            tr(l).to_string()
         }
     };
     let mut out = None;
     ui.horizontal(|ui| {
         let name = ["Click", "Right-click", "Middle-click"][button];
-        ui.label(RichText::new(name).color(sub(ui)));
+        ui.label(RichText::new(tr(name)).color(sub(ui)));
         // `width` is only a minimum; the name is cut to the room left.
         egui::ComboBox::from_id_salt(id)
             .selected_text(label(action))
@@ -7676,13 +7927,18 @@ fn workspace_drag(ui: &mut Ui, n: &mut usize, ws: usize) -> bool {
     let drag = egui::DragValue::new(n)
         .range(1..=ws.max(1))
         .clamp_existing_to_range(false)
-        .prefix("Workspace ");
+        .prefix(format!("{} ", tr("Workspace")));
     ui.add(drag).changed()
 }
 
 /// Why a switch to workspace `n` does nothing, when it is past the `ws` set.
 fn missing_workspace(n: usize, ws: usize) -> Option<String> {
-    (n > ws).then(|| format!("Workspace {n} doesn't exist (you have {ws}), so this does nothing."))
+    (n > ws).then(|| {
+        trf(
+            "Workspace {n} doesn't exist (you have {ws}), so this does nothing.",
+            &[("n", &n.to_string()), ("ws", &ws.to_string())],
+        )
+    })
 }
 
 /// Everyday apps a click can open, besides the terminals and browsers found
@@ -7711,7 +7967,7 @@ fn app_menu(ui: &mut Ui, id: egui::Id, v: &mut String) -> bool {
         .collect();
     let typed_id = id.with("typed");
     let label = match v.trim() {
-        "" => "Pick an app".to_string(),
+        "" => tr("Pick an app").to_string(),
         _ => choice_label(v, &found, Some(Pick::App)),
     };
     let typed =
@@ -7723,7 +7979,7 @@ fn app_menu(ui: &mut Ui, id: egui::Id, v: &mut String) -> bool {
         ui.data_mut(|m| m.insert_temp(typed_id, true));
     }
     egui::ComboBox::from_id_salt(id)
-        .selected_text(label)
+        .selected_text(localized_choice_label(&label))
         .width(ui.available_width())
         .height(420.0)
         .truncate()
@@ -7898,7 +8154,7 @@ fn pill_colors(ui: &mut Ui, f: &mut Find, c: &mut Config, d: &Config, roles: &Ba
                 }
             }
             if ws.is_empty() {
-                ui.label(RichText::new("No text widget on the bar.").color(sub(ui)));
+                ui.label(RichText::new(tr("No text widget on the bar.")).color(sub(ui)));
             }
         });
     }) {
@@ -7971,7 +8227,7 @@ fn preset_diff(c: &Config, stamped: &Config) -> Vec<&'static str> {
 fn short_list(keys: &[&str]) -> String {
     let mut s = keys[..keys.len().min(4)].join(", ");
     if keys.len() > 4 {
-        s.push_str(&format!(" +{} more", keys.len() - 4));
+        s.push_str(&format!(" +{} {}", keys.len() - 4, tr("more")));
     }
     s
 }
@@ -7994,11 +8250,13 @@ fn presets_ui(ui: &mut Ui, c: &Config) -> Option<&'static BarPreset> {
     card(ui, |ui| {
         ui.horizontal(|ui| {
             let text = if diff.is_empty() {
-                format!("Preset: {}", near.label)
+                format!("{}: {}", tr("Preset"), tr(near.label))
             } else {
                 format!(
-                    "Preset: {} \u{2014} modified ({})",
-                    near.label,
+                    "{}: {} \u{2014} {} ({})",
+                    tr("Preset"),
+                    tr(near.label),
+                    tr("modified"),
                     short_list(diff)
                 )
             };
@@ -8026,13 +8284,13 @@ fn presets_ui(ui: &mut Ui, c: &Config) -> Option<&'static BarPreset> {
                     Layout::top_down(Align::Min),
                     |ui| {
                         ui.set_width(w);
-                        ui.label(RichText::new(p.label).family(semibold()));
-                        ui.label(RichText::new(p.blurb).small().color(sub(ui)));
+                        ui.label(RichText::new(tr(p.label)).family(semibold()));
+                        ui.label(RichText::new(tr(p.blurb)).small().color(sub(ui)));
                     },
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if diff.is_empty() {
-                        ui.label(RichText::new("In use").color(sub(ui)));
+                        ui.label(RichText::new(tr("In use")).color(sub(ui)));
                     } else if ui.button(tr("Apply")).clicked() {
                         apply = Some(*p);
                     }
@@ -8558,7 +8816,11 @@ fn font_row(ui: &mut Ui, f: &mut Find, meta: Meta, v: &mut String, d: &str) {
     if row_core(ui, f, meta, v != d, true, |ui| {
         let typed = ui.data(|m| m.get_temp::<bool>(id.with("custom"))) == Some(true);
         ui.horizontal_wrapped(|ui| {
-            let shown = if v.is_empty() { "Default" } else { v.as_str() };
+            let shown = if v.is_empty() {
+                tr("Default")
+            } else {
+                v.as_str()
+            };
             egui::ComboBox::from_id_salt(id)
                 .selected_text(shown.to_string())
                 .width(240.0)
@@ -8575,10 +8837,10 @@ fn font_row(ui: &mut Ui, f: &mut Find, meta: Meta, v: &mut String, d: &str) {
                 one_line(v);
             }
             if missing {
-                ui.colored_label(ui.visuals().warn_fg_color, "Not installed")
-                    .on_hover_text(
+                ui.colored_label(ui.visuals().warn_fg_color, tr("Not installed"))
+                    .on_hover_text(tr(
                         "No installed font has this name, so Windows draws a stand-in font.",
-                    );
+                    ));
             }
             font_preview(ui, id, v);
         });
@@ -8861,6 +9123,18 @@ fn choice_label(v: &str, opts: &[Choice], browse: Option<Pick>) -> String {
     }
 }
 
+fn localized_choice_label(value: &str) -> String {
+    match value {
+        "None" | "System default" | "Your user folder" | "Everything Windows indexes" => {
+            tr(value).to_owned()
+        }
+        _ => value.strip_prefix("Custom: ").map_or_else(
+            || value.to_owned(),
+            |custom| trf("Custom: {value}", &[("value", custom)]),
+        ),
+    }
+}
+
 /// `%NAME%` replaced by `env(NAME)`; None when one is not set (that place
 /// does not exist on this PC).
 fn expand(template: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
@@ -8989,7 +9263,7 @@ impl Pick {
 
     /// A picker's menu item that opens the dialog.
     fn choose(self) -> String {
-        format!("{}\u{2026}", self.dialog().0)
+        format!("{}\u{2026}", tr(self.dialog().0))
     }
 }
 
@@ -9153,7 +9427,7 @@ fn scratch_class(command: &str) -> &'static str {
 /// windows, and the file / folder dialog. This is a separate process from
 /// the WM, so none of it can stall the input hooks.
 mod sys {
-    use super::{OpenWindow, Pick};
+    use super::{tr, OpenWindow, Pick};
     use std::path::Path;
     use windows::core::{HSTRING, PCWSTR, PWSTR};
     use windows::Win32::Foundation::{CloseHandle, BOOL, COLORREF, HWND, LPARAM, SIZE};
@@ -9477,9 +9751,9 @@ mod sys {
                     options |= FOS_PICKFOLDERS;
                 }
                 dialog.SetOptions(options)?;
-                dialog.SetTitle(&HSTRING::from(title))?;
+                dialog.SetTitle(&HSTRING::from(tr(title)))?;
                 let names: Vec<(HSTRING, HSTRING)> = (types.iter())
-                    .map(|(n, s)| (HSTRING::from(*n), HSTRING::from(*s)))
+                    .map(|(n, s)| (HSTRING::from(tr(n)), HSTRING::from(*s)))
                     .collect();
                 let specs: Vec<COMDLG_FILTERSPEC> = (names.iter())
                     .map(|(n, s)| COMDLG_FILTERSPEC {
@@ -10488,12 +10762,22 @@ key_close_window = F4
     /// Renders the pages offscreen to PNGs, since Settings must not be
     /// launched on a working desktop to check a visual change:
     ///   cargo test -p astur-settings -- --ignored render_pages
-    /// writes %TEMP%\astur-settings-render\*.png. A plain CPU rasterizer of
+    /// writes %TEMP%\astur-settings-render\*-vi.png and *-en.png.
+    /// A plain CPU rasterizer of
     /// egui's meshes with nearest-texel sampling, so text is a little rougher
     /// than on screen; layout, spacing and colours are exact.
     #[test]
     #[ignore]
     fn render_pages() {
+        let previous = i18n::language();
+        for locale in ["vi", "en"] {
+            i18n::set_language(locale);
+            render_pages_locale(locale);
+        }
+        i18n::set_language(previous);
+    }
+
+    fn render_pages_locale(locale: &str) {
         use std::collections::HashMap;
         let dir = std::env::temp_dir().join("astur-settings-render");
         std::fs::create_dir_all(&dir).unwrap();
@@ -10636,7 +10920,7 @@ key_close_window = F4
             let out = last.unwrap();
             let prims = ctx.tessellate(out.shapes, out.pixels_per_point);
             let rgba = raster(&prims, &tex, w, h);
-            png(&dir.join(format!("{name}.png")), w, h, &rgba);
+            png(&dir.join(format!("{name}-{locale}.png")), w, h, &rgba);
         }
     }
 
