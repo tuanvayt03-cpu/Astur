@@ -1,5 +1,15 @@
 # Astur VI — Handoff after in-place updater V2 (2026-10-29)
 
+## 2026-10-30 10:18+07 — continuation: minimize/restore and scrolling focus regression
+
+- **Baseline:** branch `feat/vi-full-update-popup-v2`, clean and in sync at `34ad676`; public 2.4.0.8 release source `b4bb09a` remains untouched. This follow-up is scoped to native fullscreen lifecycle, popup independence and exact per-window Windows Z-order; no live user desktop or configuration modifications.
+- **Root cause 1:** `EVENT_SYSTEM_MINIMIZESTART` explicitly cleared `INDEPENDENT_HWND`, so later `reconcile_independence` would not enqueue `Cmd::Add` when normal-size restored (or when visibility lagged behind queued events). Fix keeps membership until re-adoption or DESTROY and defers a recheck while minimized/hidden. New pure-state transition regression covers minimize/hidden -> restore normal -> re-adopt and restore maximized -> independent.
+- **Root cause 2:** `reconcile_independence` called generic `untrack_window`, whose scrolling layout auto-focused the next tile when the removed native fullscreen had been focused, incorrectly lowering the user's fullscreen surface. Fix adds a no-focus detachment path only for native fullscreen while preserving normal untrack scrolling behavior. Regression tests cover both cases.
+- **Other changes:** release metadata moved to fresh preview `2.4.0.9` to preserve immutable `2.4.0.8` tag and assets; user-visible locales and checkbox behavior unchanged.
+- **Observed environment:** CodeLocal desktop window list showed no active Zalo/Telegram photo/video popup or Astur main manager window; do not claim live E2E. A read-only tasklist attempt was blocked by CodeLocal command policy, so full process inventory remains unknown. Do not start/tile/alter the user's real windows for testing. Synthetic/Windows CI is the current executable verification.
+- **Verification at edit checkpoint:** `python scripts/test_i18n_inventory.py` PASS (821/14), `python scripts/test_upgrade_packaging.py` PASS, `git diff --check` PASS. Rustfmt/Clippy/full Rust tests/release build/update smoke are **PENDING fresh Windows GitHub CI for new commit**; never mark source ready before that evidence.
+- **Next critical path:** review diff; commit/push scoped change; inspect Windows CI and updater workflow; fix concrete failure only, then review release tag, installer and checksum; preserve real desktop E2E as UNVERIFIED unless live HWND evidence actually exists. After success refresh branch Git status and handoff baseline.
+
 ## 2026-10-30: Independent fullscreen / media popups + compact locale switch (v2.4.0.8 candidate)
 
 - **Objective and contract:** `docs/vi/PLAN_INDEPENDENT_FULLSCREEN_POPUPS_20261030.md`. User approved one checkbox protecting Windows maximize and true F11 fullscreen plus native photo/video/PiP popup surfaces from tiling/tab adoption. Focus/stack order stays per-window Windows Z-order, not global Always-on-Top; changing focus to tile B over fullscreen does not promote tile A. Option is OFF by default. Locale selector EN/VI moved to the top-right header and lists only the alternate language.

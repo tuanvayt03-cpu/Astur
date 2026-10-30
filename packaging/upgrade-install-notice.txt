@@ -1,4 +1,4 @@
-ASTUR VI UPDATE 2.4.0.8 (PREVIEW)
+ASTUR VI UPDATE 2.4.0.9 (PREVIEW)
 
 This installer UPDATES the existing Astur English installation IN PLACE.
 It is an experimental fork, NOT an official stable upstream release.

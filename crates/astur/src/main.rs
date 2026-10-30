@@ -12231,6 +12231,17 @@ unsafe fn show_workspace(mgr: &mut Manager, mi: usize, ws: usize) {
 /// Drop `h` from whatever workspace holds it and re-tile if that workspace is
 /// on screen. A no-op for an untracked handle.
 unsafe fn untrack_window(mgr: &mut Manager, h: isize) {
+    untrack_window_with_focus(mgr, h, true);
+}
+
+/// Native fullscreen is explicitly detached, not switched away from. In a
+/// scrolling workspace, do not focus the next column on this path: doing so
+/// would lower the newly fullscreen window without user intent.
+fn focus_after_detach(was_focus: bool, scrolling: bool, allow_focus: bool) -> bool {
+    was_focus && scrolling && allow_focus
+}
+
+unsafe fn untrack_window_with_focus(mgr: &mut Manager, h: isize, allow_focus: bool) {
     if SCRATCHPAD_HWND.load(Ordering::Relaxed) == h {
         SCRATCHPAD_HWND.store(0, Ordering::Relaxed);
         SCRATCHPAD_HIDDEN.store(false, Ordering::Relaxed);
@@ -12255,13 +12266,40 @@ unsafe fn untrack_window(mgr: &mut Manager, h: isize) {
             // real focus too, not whichever window Windows activates next
             // (plan/scrolling.md "Defaults"). Its stale FOREGROUND event then
             // fails Cmd::Focused's foreground check.
-            if was_focus && mgr.monitors[mi].layout == "scrolling" {
+            if focus_after_detach(was_focus, mgr.monitors[mi].layout == "scrolling", allow_focus) {
                 let f = mgr.monitors[mi].workspaces[wi].focused;
                 if f != 0 {
                     focus_window(f);
                 }
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IndependentRecheck {
+    /// A minimized/hidden window must retain its marker until visibility settles.
+    Defer,
+    Detach,
+    ReAdopt,
+    Ignore,
+}
+
+/// Pure transition decision, shared by the production WinEvent path and tests.
+fn independence_recheck(
+    was_independent: bool,
+    visible: bool,
+    minimized: bool,
+    native_surface: bool,
+) -> IndependentRecheck {
+    if !visible || minimized {
+        IndependentRecheck::Defer
+    } else if native_surface {
+        IndependentRecheck::Detach
+    } else if was_independent {
+        IndependentRecheck::ReAdopt
+    } else {
+        IndependentRecheck::Ignore
     }
 }
 
@@ -12274,19 +12312,29 @@ unsafe fn reconcile_independence(mgr: &mut Manager, h: isize) {
         return;
     }
     let hwnd = hwnd_from(h);
-    if independent_native_surface(hwnd) {
-        independent_remember(h, true);
-        if mgr.locate(h).is_some() {
-            cancel_glide();
-            unstyle_window(hwnd);
-            untrack_window(mgr, h);
+    if !IsWindow(hwnd).as_bool() {
+        independent_remember(h, false);
+        return;
+    }
+    let visible = IsWindowVisible(hwnd).as_bool();
+    let minimized = IsIconic(hwnd).as_bool();
+    let native = visible && !minimized && independent_native_surface(hwnd);
+    match independence_recheck(independent_seen(h), visible, minimized, native) {
+        IndependentRecheck::Defer | IndependentRecheck::Ignore => {}
+        IndependentRecheck::Detach => {
+            independent_remember(h, true);
+            if mgr.locate(h).is_some() {
+                cancel_glide();
+                unstyle_window(hwnd);
+                untrack_window_with_focus(mgr, h, false);
+            }
         }
-    } else if independent_remember(h, false)
-        && IsWindowVisible(hwnd).as_bool()
-        && !IsIconic(hwnd).as_bool()
-        && is_manageable(hwnd)
-    {
-        push_cmd(Cmd::Add(h, EVENT_OBJECT_LOCATIONCHANGE));
+        IndependentRecheck::ReAdopt => {
+            independent_remember(h, false);
+            if is_manageable(hwnd) {
+                push_cmd(Cmd::Add(h, EVENT_OBJECT_LOCATIONCHANGE));
+            }
+        }
     }
 }
 
@@ -12378,6 +12426,9 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         && GetForegroundWindow() != hwnd;
                     let prev_focus = mgr.monitors[mi].workspaces[wi].focused;
                     mgr.insert_window(h, mi, wi, None, floating);
+                    // A delayed SHOW may adopt a restored independent window
+                    // before its MINIMIZEEND probe: avoid stale membership.
+                    independent_remember(h, false);
                     if quiet && prev_focus != 0 {
                         mgr.monitors[mi].workspaces[wi].focused = prev_focus;
                         if !floating && mgr.monitors[mi].layout == "scrolling" {
@@ -19249,12 +19300,15 @@ unsafe extern "system" fn win_event_proc(
             push_cmd(Cmd::Remove(h));
         }
         EVENT_SYSTEM_MINIMIZESTART | EVENT_SYSTEM_MINIMIZEEND => {
-            if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire) {
-                if event == EVENT_SYSTEM_MINIMIZESTART {
-                    independent_remember(h, false);
-                } else if independent_seen(h) || !is_managed(h) {
-                    push_cmd(Cmd::RefreshIndependence(h));
-                }
+            // Keep an independent HWND's marker across MINIMIZESTART. Windows
+            // may deliver minimize/geometry events before it becomes visible
+            // again; clearing now strands a restored normal-size window outside
+            // Astur's registry, with no pending re-adoption.
+            if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire)
+                && event == EVENT_SYSTEM_MINIMIZEEND
+                && (independent_seen(h) || !is_managed(h))
+            {
+                push_cmd(Cmd::RefreshIndependence(h));
             }
             // Only h's own monitor can change (TILE-3). This used to re-place
             // every window on every monitor for any minimize anywhere, which
@@ -24992,6 +25046,28 @@ mod tests {
             0,
             WS_EX_TOPMOST.0 | WS_EX_TRANSPARENT.0
         ));
+    }
+
+    #[test]
+    fn native_independent_minimize_and_restore_preserves_re_adoption() {
+        use IndependentRecheck::*;
+        // On minimize, even a transient hidden/geometry notification cannot
+        // forget the previously independent window's state.
+        assert_eq!(independence_recheck(true, true, true, false), Defer);
+        assert_eq!(independence_recheck(true, false, false, false), Defer);
+        // Upon a normal-size restore the manager gets a re-adoption chance.
+        assert_eq!(independence_recheck(true, true, false, false), ReAdopt);
+        // Restore to native fullscreen remains independent instead.
+        assert_eq!(independence_recheck(true, true, false, true), Detach);
+        assert_eq!(independence_recheck(false, true, false, false), Ignore);
+    }
+
+    #[test]
+    fn native_fullscreen_detach_must_not_steal_focus_in_scrolling_layout() {
+        assert!(focus_after_detach(true, true, true));
+        assert!(!focus_after_detach(true, true, false));
+        assert!(!focus_after_detach(false, true, true));
+        assert!(!focus_after_detach(true, false, true));
     }
 
     #[test]

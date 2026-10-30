@@ -1,8 +1,11 @@
-# Astur VI Update 2.4.0.8 — experimental in-place upgrade
+# Astur VI Update 2.4.0.9 — experimental in-place upgrade
 
 **This installer updates the existing English Astur instead of installing a second copy.** It preserves the upstream installer GUID, remembers the existing installation folder and startup shortcut choice, and leaves normal window layout/configuration files in place.
 
 ## Changes
+- Fix lifecycle race: minimize and temporary hide of an independent fullscreen window no longer erase its tracking marker before a normal-size restore can be re-adopted by Astur. The marker is removed after successful normal window adoption or destruction.
+- Fix scrolling focus: when a managed tile becomes an independent fullscreen window, Astur no longer forces focus to the next tile. The fullscreen surface keeps its Windows Z-order until the user explicitly selects another window.
+- Added synthetic regression tests for minimize/restore re-adoption, delayed visibility and focus behavior.
 - Regression guard: even if native maximize/F11 occurs before the queued WinEvent reconciliation, the layout engine will not send a tile resize/restore to the native fullscreen surface.
 - Optional **Keep fullscreen and media popups independent** setting under Windows & rules (OFF by default). Native maximize/Windows square button, F11 borderless fullscreen and unowned borderless media viewer surfaces are excluded from Astur's tile/tab registry. Restored normal-size main windows may return to normal tiling. Other tiled windows retain ordinary per-window focus/Z-order; no global Always on Top.
 - Compact EN/VI language switcher moved from left navigation to the header; dropdown offers only the other language. Vietnamese catalog expands to 821 mapped strings.
