@@ -956,28 +956,6 @@ impl App {
             );
         });
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.label(tr("Language"));
-            let mut selected = i18n::language().to_string();
-            egui::ComboBox::from_id_salt("astur_ui_language")
-                .selected_text(if selected == "vi" {
-                    "Tiếng Việt"
-                } else {
-                    "English"
-                })
-                .width(125.0)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut selected, "en".to_owned(), "English");
-                    ui.selectable_value(&mut selected, "vi".to_owned(), "Tiếng Việt");
-                });
-            if selected != i18n::language() {
-                if let Err(error) =
-                    i18n::save(&self.paths[0].with_file_name("ui-language.txt"), &selected)
-                {
-                    self.error = Some(format!("Couldn't save display language: {error}"));
-                }
-            }
-        });
         ui.add_space(8.0);
         let search = ui.add(
             egui::TextEdit::singleline(&mut self.query)
@@ -1009,6 +987,30 @@ impl App {
             }
             ui.add_space(12.0);
         });
+    }
+
+    /// Compact header chooser; only show the alternate locale as an action.
+    fn language_menu(&mut self, ui: &mut Ui) {
+        let current = i18n::language();
+        let (shown, next, next_label) = if current == "vi" {
+            ("VI", "en", "EN")
+        } else {
+            ("EN", "vi", "VI")
+        };
+        let mut selected = current.to_string();
+        egui::ComboBox::from_id_salt("astur_ui_language")
+            .selected_text(shown)
+            .width(42.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut selected, next.to_owned(), next_label);
+            });
+        if selected != current {
+            if let Err(error) =
+                i18n::save(&self.paths[0].with_file_name("ui-language.txt"), &selected)
+            {
+                self.error = Some(format!("Couldn't save display language: {error}"));
+            }
+        }
     }
 
     fn header(&mut self, ui: &mut Ui) {
@@ -1051,6 +1053,7 @@ impl App {
                     self.undo_all();
                 }
                 self.status(ui);
+                self.language_menu(ui);
             });
         });
         self.trial_banner(ui);
@@ -1773,6 +1776,17 @@ impl App {
         } else {
             ui.add_enabled_ui(false, alt_tab);
         }
+        toggle(
+            ui,
+            f,
+            (
+                "Keep fullscreen and media popups independent",
+                "Maximized and F11 fullscreen windows keep their own size. Photo/video viewer popups stay outside Astur's tiles and tabs. Clicked tiles appear above fullscreen individually in normal Windows order; restoring a fullscreen window lets Astur manage it again.",
+                "independent_fullscreen_popups",
+            ),
+            &mut c.independent_fullscreen_popups,
+            d.independent_fullscreen_popups,
+        );
         section(ui, f, "Rules");
         if table(
             ui,
@@ -6335,6 +6349,7 @@ fn conf_pairs(c: &Config) -> (Pairs, Pairs) {
         ("workspace_icons", c.workspace_icons.join(", ")),
         ("workspace_wallpapers", slots(&c.workspace_wallpapers)),
         ("start_tiled", b(c.start_tiled)),
+        ("independent_fullscreen_popups", b(c.independent_fullscreen_popups)),
         ("layout", c.layout.clone()),
         ("monitor_layouts", c.monitor_layouts.join(", ")),
         ("master_ratio", format!("{:.2}", c.master_ratio)),

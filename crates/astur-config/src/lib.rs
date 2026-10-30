@@ -48,6 +48,7 @@ pub struct HotkeyDef {
 pub struct Config {
     pub per_monitor: bool,        // true: Alt+1..9 switches focused monitor only
     pub start_tiled: bool,        // tile automatically on launch
+    pub independent_fullscreen_popups: bool, // opt-in: native maximize/F11 and transient media viewers
     pub outer_gap: i32,           // gap between windows and screen edge
     pub inner_gap: i32,           // gap between adjacent windows
     pub master_ratio: f32,        // fraction of width given to the master window
@@ -1174,6 +1175,7 @@ impl Config {
         Config {
             per_monitor: false,
             start_tiled: true,
+            independent_fullscreen_popups: false,
             outer_gap: 8,
             inner_gap: 8,
             master_ratio: 0.55,
@@ -1567,6 +1569,9 @@ workspace_icons =
 
 # Tile windows automatically on launch (Alt+T toggles at runtime).  bool
 start_tiled = true
+# Keep maximized/F11 windows and transient media popups independent (bool).
+# Normal tiling continues underneath and Windows controls each window's z-order.
+independent_fullscreen_popups = false
 
 # Tiling layout.
 #   dwindle = each new window splits the remaining space, spiralling into the
@@ -2783,6 +2788,7 @@ fn parse_into_from(c: &mut Config, text: &str, source: &str) {
             // ---- window manager (astur.conf) ----
             "workspace_mode" => c.per_monitor = v.eq_ignore_ascii_case("per_monitor"),
             "start_tiled" => c.start_tiled = parse_bool(v),
+            "independent_fullscreen_popups" => c.independent_fullscreen_popups = parse_bool(v),
             "outer_gap" => {
                 if let Ok(n) = v.parse::<i32>() {
                     c.outer_gap = n.clamp(0, 500);
@@ -3470,6 +3476,7 @@ pub fn reload_groups(old: &Config, new: &Config) -> ReloadGroups {
     let Config {
         per_monitor,
         start_tiled,
+        independent_fullscreen_popups,
         outer_gap,
         inner_gap,
         master_ratio,
@@ -3665,6 +3672,7 @@ pub fn reload_groups(old: &Config, new: &Config) -> ReloadGroups {
     // Workspace model and tile geometry. The bar keys here feed reserve_bar
     // (the work area the tiles fill), so they re-tile as well as rebuild.
     diff!(wm: per_monitor, workspaces, outer_gap, inner_gap, master_ratio, layout);
+    diff!(wm: independent_fullscreen_popups);
     diff!(wm: monitor_layouts, scroll_default_width, scroll_width_presets);
     diff!(wm: scroll_height_presets, scroll_center, tab_bar_height);
     diff!(wm: bar_enabled, bar_height, bar_bottom, bar_floating, bar_margin, bar_autohide);
@@ -5878,6 +5886,17 @@ floating = true"
             "Thứ bảy 24 Tháng mười"
         );
         i18n::set_language("en");
+    }
+
+    #[test]
+    fn independent_fullscreen_popup_mode_is_opt_in_and_reloads_wm() {
+        let off = default_config();
+        assert!(!off.independent_fullscreen_popups);
+        let on = parse_text("independent_fullscreen_popups = true");
+        assert!(on.independent_fullscreen_popups);
+        assert!(reload_groups(&off, &on).wm);
+        assert!(reload_groups(&on, &off).wm);
+        assert!(!parse_text("independent_fullscreen_popups = off").independent_fullscreen_popups);
     }
 
     #[test]

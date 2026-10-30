@@ -1,4 +1,4 @@
-ASTUR VI UPDATE 2.4.0.6 (PREVIEW)
+ASTUR VI UPDATE 2.4.0.7 (PREVIEW)
 
 This installer UPDATES the existing Astur English installation IN PLACE.
 It is an experimental fork, NOT an official stable upstream release.
@@ -20,8 +20,12 @@ installer again. Do not run the original and fork simultaneously.
 The backup is available if you need your previous binary/settings.
 
 WHAT IS NEW
+Optional Windows & rules checkbox keeps native maximize/F11 windows and
+borderless photo/video popups outside Astur's tile/tab layout. The rest of
+the tiled windows keep normal per-window Windows focus and z-order.
+Compact EN/VI language dropdown is now in the top-right toolbar.
 Vietnamese Settings is the default for users without a locale preference.
-The 819-entry catalog now covers all 14 Settings pages and more dynamic help,
+The 821-entry catalog now covers all 14 Settings pages and more dynamic help,
 validation, launcher and native menu text; English remains selectable.
 Source-level coverage is not proof of every on-screen string.
 Very shallow notifications anchored to the top/bottom screen edge are kept

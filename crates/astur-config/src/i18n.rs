@@ -128,6 +128,8 @@ pub fn tr(text: &str) -> &str {
                  Turn Caps Lock off before you choose this. Pressed in an admin window, \
                  on the lock screen or a UAC prompt it still turns capitals on: press it \
                  there again (Win+L locks the PC), or use the on-screen keyboard." => "Caps Lock trở thành phím Astur và không còn bật chữ hoa. Hãy tắt Caps Lock trước khi chọn. Trong cửa sổ quản trị, màn hình khóa hoặc thông báo UAC, phím vẫn bật chữ hoa; nhấn lại tại đó (Win+L khóa máy) hoặc dùng bàn phím ảo.",
+        "Keep fullscreen and media popups independent" => "Giữ cửa sổ toàn màn hình và popup độc lập",
+        "Maximized and F11 fullscreen windows keep their own size. Photo/video viewer popups stay outside Astur's tiles and tabs. Clicked tiles appear above fullscreen individually in normal Windows order; restoring a fullscreen window lets Astur manage it again." => "Cửa sổ phóng to hoặc toàn màn hình F11 giữ nguyên kích thước. Popup ảnh/video không bị Astur chia ô hay gom tab. Mỗi cửa sổ chia ô được chọn sẽ nổi lên riêng theo thứ tự Windows; khi bỏ toàn màn hình, cửa sổ có thể trở lại bố cục Astur.",
         "Astur Settings" => "Cài đặt Astur",
         "Home" => "Trang chủ",
         "Core" => "Cốt lõi",

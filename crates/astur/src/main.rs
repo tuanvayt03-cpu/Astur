@@ -143,7 +143,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 // --- tiling additions -----------------------------------------------------
 use core::ffi::c_void;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use windows::core::s;
 use windows::Win32::Graphics::Dwm::{
     DwmFlush, DwmGetColorizationColor, DwmGetWindowAttribute, DwmRegisterThumbnail,
@@ -2516,6 +2516,8 @@ enum Cmd {
     Remove(isize),
     /// App-driven hide: untrack unless the window is visible again by then.
     RemoveHidden(isize),
+    /// Reconcile a native maximize/F11/restore without ever moving that surface.
+    RefreshIndependence(isize),
     Focused(isize),
     ActivateWindow(isize),
     FocusDir(i32),
@@ -2613,6 +2615,7 @@ impl Cmd {
             Cmd::Add(..) => "Add",
             Cmd::Remove(_) => "Remove",
             Cmd::RemoveHidden(_) => "RemoveHidden",
+            Cmd::RefreshIndependence(_) => "RefreshIndependence",
             Cmd::Focused(_) => "Focused",
             Cmd::ActivateWindow(_) => "ActivateWindow",
             Cmd::FocusDir(_) => "FocusDir",
@@ -2705,6 +2708,10 @@ static PRESSED: [AtomicBool; 256] = [const { AtomicBool::new(false) }; 256];
 // Every window the manager currently tracks (across all monitors/workspaces).
 // Kept in sync by the manager so the shutdown handler can reveal them all.
 static MANAGED: Mutex<Vec<isize>> = Mutex::new(Vec::new());
+// Opt-in native fullscreen/media-viewer protection; read by WinEvent callbacks.
+static INDEPENDENT_FULLSCREEN_POPUPS: AtomicBool = AtomicBool::new(false);
+// Windows excluded while maximized/fullscreen: recheck on restore or minimize.
+static INDEPENDENT_HWND: Mutex<Option<HashSet<isize>>> = Mutex::new(None);
 // O(1) window -> (monitor, workspace) lookup, rebuilt by sync_managed once per
 // command (it already walks every window, so this is free). `locate` reads it.
 static INDEX: Mutex<Option<HashMap<isize, (usize, usize)>>> = Mutex::new(None);
@@ -2740,6 +2747,7 @@ fn apply_hook_config(cfg: &Config) {
         log_error!("config line not understood (ignored): {key}");
     }
     FOLLOW_MOUSE.store(cfg.focus_follows_mouse, Ordering::Relaxed);
+    INDEPENDENT_FULLSCREEN_POPUPS.store(cfg.independent_fullscreen_popups, Ordering::Release);
     // Logged at startup and on each reload: which placement mode ran is the
     // first question for a misplaced-window report.
     ASYNC_WINDOW_POS.store(cfg.async_window_pos, Ordering::Relaxed);
@@ -5205,6 +5213,49 @@ unsafe fn app_window_reject(hwnd: HWND) -> Option<&'static str> {
     (GetWindowTextLengthW(hwnd) <= 0).then_some("untitled")
 }
 
+/// Optional independence mode: pure Win32-style part of photo/video viewer
+/// detection. Most owned viewers are already excluded by app_window_reject;
+/// an unowned, undecorated WS_POPUP is also not a normal tile.
+fn independent_media_popup_shape(style: u32, exstyle: u32) -> bool {
+    style & WS_POPUP.0 != 0
+        && style & (WS_CAPTION.0 | WS_THICKFRAME.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0 | WS_CHILD.0) == 0
+        && exstyle & WS_EX_APPWINDOW.0 == 0
+}
+
+/// A monocle tile might occupy all of a monitor, but still has normal app
+/// chrome. Only native maximized or genuine borderless screen-filling views
+/// may leave the tiling registry.
+fn native_fullscreen_policy(maximized: bool, covers_monitor: bool, style: u32) -> bool {
+    covers_monitor && (maximized || style & (WS_CAPTION.0 | WS_THICKFRAME.0) == 0)
+}
+
+/// Fullscreen is native user state (not Astur's monocle tile): IsZoomed
+/// distinguishes a maximized overlapped app, while edge-to-edge F11 often
+/// loses caption and frame styles without setting WS_MAXIMIZE.
+unsafe fn independent_native_surface(hwnd: HWND) -> bool {
+    if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+        return false;
+    }
+    let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+    let exstyle = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    let native_full = native_fullscreen_policy(
+        IsZoomed(hwnd).as_bool(),
+        fullscreen_monitor(hwnd).is_some(),
+        style,
+    );
+    native_full || independent_media_popup_shape(style, exstyle)
+}
+
+fn independent_seen(h: isize) -> bool {
+    INDEPENDENT_HWND.lock().unwrap().as_ref().is_some_and(|s| s.contains(&h))
+}
+
+fn independent_remember(h: isize, remember: bool) -> bool {
+    let mut slot = INDEPENDENT_HWND.lock().unwrap();
+    let known = slot.get_or_insert_with(HashSet::new);
+    if remember { known.insert(h) } else { known.remove(&h) }
+}
+
 /// Is this a normal top-level application window we should tile?
 unsafe fn is_manageable(hwnd: HWND) -> bool {
     manage_reject(hwnd).is_none()
@@ -5214,6 +5265,11 @@ unsafe fn is_manageable(hwnd: HWND) -> bool {
 unsafe fn manage_reject(hwnd: HWND) -> Option<&'static str> {
     if let Some(why) = app_window_reject(hwnd) {
         return Some(why);
+    }
+    if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire)
+        && independent_native_surface(hwnd)
+    {
+        return Some("independent-fullscreen-popup");
     }
     // After the cheap checks, so only a would-be tile pays the OpenProcess
     // and token read. Startup adoption (enum_proc) runs this same chain.
@@ -7987,8 +8043,23 @@ unsafe fn check_focus_landed(f: isize) {
 
 unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     let v = &mut *(lparam.0 as *mut Vec<isize>);
+    if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire)
+        && app_window_reject(hwnd).is_none()
+        && independent_native_surface(hwnd)
+    {
+        independent_remember(hwnd.0 as isize, true);
+    }
     if is_manageable(hwnd) {
         v.push(hwnd.0 as isize);
+    }
+    BOOL(1)
+}
+
+// On enabling the option, remember already-open independent windows as well
+// as those that start later; restore-down can then trigger re-adoption.
+unsafe extern "system" fn independent_enum_proc(hwnd: HWND, _: LPARAM) -> BOOL {
+    if app_window_reject(hwnd).is_none() && independent_native_surface(hwnd) {
+        independent_remember(hwnd.0 as isize, true);
     }
     BOOL(1)
 }
@@ -12174,6 +12245,31 @@ unsafe fn untrack_window(mgr: &mut Manager, h: isize) {
     }
 }
 
+/// On native maximize/F11, untrack without SW_RESTORE/SetWindowPos so the
+/// app stays truly independent. Only normal-size restored windows are eligible
+/// for adoption. Do not bring any other tiles above the fullscreen window.
+unsafe fn reconcile_independence(mgr: &mut Manager, h: isize) {
+    if !mgr.cfg.independent_fullscreen_popups {
+        independent_remember(h, false);
+        return;
+    }
+    let hwnd = hwnd_from(h);
+    if independent_native_surface(hwnd) {
+        independent_remember(h, true);
+        if mgr.locate(h).is_some() {
+            cancel_glide();
+            unstyle_window(hwnd);
+            untrack_window(mgr, h);
+        }
+    } else if independent_remember(h, false)
+        && IsWindowVisible(hwnd).as_bool()
+        && !IsIconic(hwnd).as_bool()
+        && is_manageable(hwnd)
+    {
+        push_cmd(Cmd::Add(h, EVENT_OBJECT_LOCATIONCHANGE));
+    }
+}
+
 unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
     // A key command on a scrolling monitor acts on the strip instead
     // (plan/scrolling.md "Keys"); every other command and layout falls
@@ -12182,6 +12278,7 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
         return;
     }
     match cmd {
+        Cmd::RefreshIndependence(h) => reconcile_independence(mgr, h),
         Cmd::Add(h, event) => {
             ev_count(EVC_ADD);
             match mgr.locate(h) {
@@ -12298,6 +12395,11 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     }
                 }
                 None => {
+                    if mgr.cfg.independent_fullscreen_popups
+                        && independent_native_surface(hwnd_from(h))
+                    {
+                        independent_remember(h, true);
+                    }
                     // An app Astur launched that came up elevated is refused
                     // (manage_reject's "elevated"), so the launch monitor it
                     // was meant to claim would wait for the next, unrelated
@@ -12512,7 +12614,27 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
             } else {
                 config::reload_groups(&mgr.cfg, &cfg)
             };
+            let independent_was_on = mgr.cfg.independent_fullscreen_popups;
             mgr.cfg = *cfg;
+            if independent_was_on != mgr.cfg.independent_fullscreen_popups {
+                cancel_glide();
+                if mgr.cfg.independent_fullscreen_popups {
+                    // Remember pre-existing fullscreen and media popups, then
+                    // detach tracked native maximize surfaces before any retile.
+                    let _ = EnumWindows(Some(independent_enum_proc), LPARAM(0));
+                    let tracked: Vec<isize> = mgr.monitors.iter().flat_map(|m| {
+                        m.workspaces.iter().flat_map(|ws| ws.windows.iter().copied())
+                    }).collect();
+                    for h in tracked {
+                        reconcile_independence(mgr, h);
+                    }
+                } else {
+                    // Returning to ordinary Astur mode re-adopts live eligible
+                    // windows, including those that were previously protected.
+                    INDEPENDENT_HWND.lock().unwrap().get_or_insert_with(HashSet::new).clear();
+                    assign_existing_windows(mgr);
+                }
+            }
             // The file wins over runtime layout switches on EVERY reload, as
             // it did while the layout was global (the diff above saw the
             // switch in mgr.cfg). Now the switch lives on the monitor, so the
@@ -18979,6 +19101,16 @@ unsafe extern "system" fn win_event_proc(
     if fullscreen_changed {
         request_bar_mode_refresh();
     }
+    // This hook already observes F11 and native maximize geometry changes.
+    // Reconcile on the manager thread, never mutate a foreign HWND here.
+    if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire)
+        && matches!(event, EVENT_OBJECT_LOCATIONCHANGE | EVENT_SYSTEM_FOREGROUND)
+        && NATIVE_DRAG.load(Ordering::Relaxed) != h
+        && !ANY_DRAG.load(Ordering::Relaxed)
+        && (is_managed(h) || independent_seen(h))
+    {
+        push_cmd(Cmd::RefreshIndependence(h));
+    }
     match event {
         EVENT_OBJECT_SHOW => {
             // Someone made it visible — whoever hid it, the marker is stale now
@@ -19080,12 +19212,20 @@ unsafe extern "system" fn win_event_proc(
             }
         }
         EVENT_OBJECT_DESTROY => {
+            independent_remember(h, false);
             // A destroyed window is gone for real — always untrack (a Remove for
             // an untracked hwnd is a no-op, so this is safe even mid-switch).
             unmark_hidden_by_us(h);
             push_cmd(Cmd::Remove(h));
         }
         EVENT_SYSTEM_MINIMIZESTART | EVENT_SYSTEM_MINIMIZEEND => {
+            if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire) {
+                if event == EVENT_SYSTEM_MINIMIZESTART {
+                    independent_remember(h, false);
+                } else if independent_seen(h) || !is_managed(h) {
+                    push_cmd(Cmd::RefreshIndependence(h));
+                }
+            }
             // Only h's own monitor can change (TILE-3). This used to re-place
             // every window on every monitor for any minimize anywhere, which
             // also un-maximized and re-snapped windows elsewhere as a side
@@ -19101,6 +19241,11 @@ unsafe extern "system" fn win_event_proc(
         }
         EVENT_SYSTEM_MOVESIZEEND => {
             NATIVE_DRAG.store(0, Ordering::Relaxed);
+            if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire)
+                && (is_managed(h) || independent_seen(h))
+            {
+                push_cmd(Cmd::RefreshIndependence(h));
+            }
             // No preview rect here — the window is already where the user put it;
             // the manager reads the live rect (None).
             push_cmd(Cmd::DragResized(hwnd.0 as isize, None));
@@ -24817,6 +24962,19 @@ mod tests {
             0,
             WS_EX_TOPMOST.0 | WS_EX_TRANSPARENT.0
         ));
+    }
+
+    #[test]
+    fn native_fullscreen_independence_does_not_capture_monocle_tiles() {
+        let normal_window = WS_CAPTION.0 | WS_THICKFRAME.0 | WS_SYSMENU.0;
+        assert!(!native_fullscreen_policy(false, true, normal_window));
+        assert!(native_fullscreen_policy(true, true, normal_window));
+        assert!(native_fullscreen_policy(false, true, WS_POPUP.0));
+        assert!(!native_fullscreen_policy(false, false, WS_POPUP.0));
+        assert!(independent_media_popup_shape(WS_POPUP.0, 0));
+        assert!(!independent_media_popup_shape(normal_window, 0));
+        assert!(!independent_media_popup_shape(WS_POPUP.0, WS_EX_APPWINDOW.0));
+        assert!(!independent_media_popup_shape(WS_POPUP.0 | WS_THICKFRAME.0, 0));
     }
 
     #[test]
