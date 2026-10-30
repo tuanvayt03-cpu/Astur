@@ -17,8 +17,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  UPGRADE_TAG: astur-vi-update-2.4.0.7
-  UPGRADE_VERSION: 2.4.0.7
+  UPGRADE_TAG: astur-vi-update-2.4.0.8
+  UPGRADE_VERSION: 2.4.0.8
 
 jobs:
   upgrade:
@@ -68,7 +68,7 @@ jobs:
       - name: Upload bilingual Settings screenshots for review
         uses: actions/upload-artifact@v6
         with:
-          name: astur-settings-en-vi-2.4.0.7
+          name: astur-settings-en-vi-2.4.0.8
           path: dist/ui-renders/*.png
           if-no-files-found: error
 

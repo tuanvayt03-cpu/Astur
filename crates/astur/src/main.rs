@@ -6925,6 +6925,18 @@ unsafe fn workspace_layout(mgr: &Manager, mi: usize, wi: usize) -> Vec<(isize, R
         return Vec::new();
     };
     let tiled = tiled_windows(ws);
+    // The WinEvent recheck is asynchronous. A user may maximize while an
+    // unrelated retile is already queued: omit that native fullscreen surface
+    // from placement immediately, before any SW_RESTORE or SetWindowPos, even
+    // if it has not yet been detached from the managed registry.
+    let tiled: Vec<isize> = if mgr.cfg.independent_fullscreen_popups {
+        tiled
+            .into_iter()
+            .filter(|&h| !independent_native_surface(hwnd_from(h)))
+            .collect()
+    } else {
+        tiled
+    };
     let n = tiled.len();
     if n == 0 {
         return Vec::new();

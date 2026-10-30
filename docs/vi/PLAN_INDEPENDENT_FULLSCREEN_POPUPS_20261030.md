@@ -1,6 +1,6 @@
 # Astur: Independent fullscreen and transient media windows — Execution Plan (2026-10-30)
 
-Status: IMPLEMENTED IN SOURCE; WINDOWS CI PENDING. Baseline feat/vi-full-update-popup-v2, clean at 8c92131 before edits. Preview target 2.4.0.7; release must remain gated by Windows fmt/Clippy/tests/install smoke. All desktop E2E states explicitly UNVERIFIED until observed.
+Status: IMPLEMENTED IN SOURCE; WINDOWS CI PENDING. Baseline feat/vi-full-update-popup-v2, clean at 8c92131 before edits. Preview target 2.4.0.8 following an additional in-flight-placement race guard (2.4.0.7 is an intermediate CI commit); release must remain gated by Windows fmt/Clippy/tests/install smoke. All desktop E2E states explicitly UNVERIFIED until observed.
 
 ## Contract / scope
 - One opt-in checkbox in Settings > Windows & Rules: preserve native maximized (Windows square button), F11/borderless fullscreen, and transient photo/video popup windows. Default OFF for upgrade safety.
