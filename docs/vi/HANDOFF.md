@@ -1,5 +1,14 @@
 # Astur VI — Handoff after in-place updater V2 (2026-10-29)
 
+## 2026-10-30 — Compact messenger notification completely bypassed (preview 2.4.0.10 candidate)
+
+- **Baseline**: `196f252`, clean `feat/vi-full-update-popup-v2`, prior release `2.4.0.9`. User reports new 350×80-ish top-edge group message toast still shifting tile/page after preview 2.4.0.9; screenshot near x=115, y=0. Exact HWND style/class is NOT known from screenshot. Only popup handling changed; all native fullscreen, language and layout features retained.
+- **Evidence-based hypothesis**: `transient_overlay_shape` previously returned false immediately when `WS_EX_APPWINDOW` is present, or when cosmetic `WS_CAPTION/WS_SYSMENU` are present without TOPMOST/LAYERED, despite very shallow top-edge banner geometry. Such a toast can enter `Cmd::Add` and be adopted. The new rule accepts only a short edge banner inside the monitor with no true resize/minimize/maximize/child window controls, even if APPWINDOW/caption flags are set; normal decorated main windows stay tileable.
+- **Additional gate**: for unmanaged, already-recognized toast windows, immediately ignore SHOW/FOREGROUND/UNCLOAKED in `win_event_proc`. Never send them to Astur's Add/Focused/fullscreen manager; never hide, reposition or block the popup; allow HIDE/DESTROY for already-tracked lifecycle cleanup.
+- **Tests added/updated**: screenshot-matching top-edge 350×80 toast with APPWINDOW/caption, normal main-window counterexample at same bounds, and boundary event exclusions. No app/process-wide Zalo or Telegram blacklists and no changes to UI/localization.
+- **Checkpoint and verification**: local `cargo fmt` unavailable (not in PATH); require fresh Windows GitHub CI fmt/Clippy/tests/build and updater verification before PASS. Run Python catalog, packaging contract and diff check. Installer 2.4.0.10 has a NEW immutable prerelease tag; do not overwrite previous 2.4.0.9 release.
+- **Critical live proof still pending**: need a real toast observed on Windows with the new binary running; confirm popup shows and dismisses as normal while tile/window count and geometry remain unchanged. The code classifier synthetic tests are evidence for its rule, not live HWND behavior. If it still fails, collect sanitized Win32 metadata during an actual toast rather than broader blind heuristics.
+
 ## 2026-10-30 — Verified preview 2.4.0.9 / recovery checkpoint (LATEST)
 
 - **Source**: baseline before task `34ad676` on `feat/vi-full-update-popup-v2`; minimize/focus regression fix `a4e1835`; final Windows rustfmt-only correction `9b7ee90d9dce20f8efc2706be71b351bba916e34`. Release immutable tag `astur-vi-update-2.4.0.9` points to `9b7ee90`. No changes to unrelated projects/worktrees. Prior 2.4.0.8 preserved.

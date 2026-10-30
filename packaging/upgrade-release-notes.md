@@ -1,8 +1,9 @@
-# Astur VI Update 2.4.0.9 — experimental in-place upgrade
+# Astur VI Update 2.4.0.10 — experimental in-place upgrade
 
 **This installer updates the existing English Astur instead of installing a second copy.** It preserves the upstream installer GUID, remembers the existing installation folder and startup shortcut choice, and leaves normal window layout/configuration files in place.
 
 ## Changes
+- **Ignore compact desktop notification banners immediately**: top/bottom-edge messaging toasts with short geometry and no actual resize/minimize/maximize controls are never adopted as Astur tiles or tabs, even when their host sets cosmetic APPWINDOW/caption/window-menu flags. SHOW/FOREGROUND/UNCLOAKED events are ignored before they enter the layout/focus queue. Normal Zalo/Telegram/Chrome windows remain managed; notification presentation and dismissal remain owned by the originating app. Regression tests cover the exact 350x80 top-edge screenshot shape, style variants, normal main-window counterexamples and event boundary.
 - Fix lifecycle race: minimize and temporary hide of an independent fullscreen window no longer erase its tracking marker before a normal-size restore can be re-adopted by Astur. The marker is removed after successful normal window adoption or destruction.
 - Fix scrolling focus: when a managed tile becomes an independent fullscreen window, Astur no longer forces focus to the next tile. The fullscreen surface keeps its Windows Z-order until the user explicitly selects another window.
 - Added synthetic regression tests for minimize/restore re-adoption, delayed visibility and focus behavior.

@@ -5062,14 +5062,6 @@ fn show_rejected_by_style(style: u32, exstyle: u32) -> bool {
 /// and desktop-relative geometry, never by app/process/title language. In
 /// particular: some Electron/Chromium notifications are NOT WS_EX_TOPMOST.
 fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT) -> bool {
-    // Real resizable/main app windows are never notification surfaces.
-    // A tiny edge banner can carry WS_CAPTION or WS_SYSMENU even when its
-    // custom-drawn frame shows no caption; evaluate those bits after geometry.
-    if style & (WS_THICKFRAME.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0 | WS_CHILD.0) != 0
-        || exstyle & WS_EX_APPWINDOW.0 != 0
-    {
-        return false;
-    }
     let width = i64::from(rect.right) - i64::from(rect.left);
     let height = i64::from(rect.bottom) - i64::from(rect.top);
     let screen_width = i64::from(monitor.right) - i64::from(monitor.left);
@@ -5107,6 +5099,20 @@ fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
         && within_horizontal_bounds
         && width * 3 <= screen_width
         && height * 8 <= screen_height;
+    // A toast may use a Chromium/Electron APPWINDOW or caption/system-menu
+    // flag despite drawing no Windows frame. Geometry plus the absence of
+    // resize/minimize/maximize controls is a safer discriminator here than
+    // APPWINDOW/TOPMOST. Exclude only a very shallow edge banner, and never
+    // its host application's normal resizable window. This is just a
+    // classification result: we never ShowWindow or SetWindowPos the toast.
+    let real_app_chrome =
+        style & (WS_THICKFRAME.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0 | WS_CHILD.0) != 0;
+    if shallow_edge_banner && !real_app_chrome {
+        return true;
+    }
+    if real_app_chrome || exstyle & WS_EX_APPWINDOW.0 != 0 {
+        return false;
+    }
     // A captioned/system-menu window is presumptively a dialog, except when a
     // second overlay signal (TOPMOST/LAYERED) also confirms a shallow banner.
     if has_chrome && !(shallow_edge_banner && (topmost || layered)) {
@@ -18960,6 +18966,18 @@ fn uncloak_retry_live(slots: &[(isize, u64)], h: isize, now: u64) -> bool {
     slots.iter().any(|s| s.0 == h && s.1 > now)
 }
 
+/// A native toast must never enter the queue that adopts or focuses apps.
+/// Keep HIDE/DESTROY available for a previously tracked handle (and leave the
+/// popup's Windows presentation entirely to its originating application).
+fn ignore_unmanaged_toast_event(event: u32, managed: bool, toast: bool) -> bool {
+    !managed
+        && toast
+        && matches!(
+            event,
+            EVENT_OBJECT_SHOW | EVENT_SYSTEM_FOREGROUND | EVENT_OBJECT_UNCLOAKED
+        )
+}
+
 /// Should a show/foreground event queue `Cmd::Add`? SUPPRESS is one global
 /// flag the manager thread holds across a whole retile, while these events
 /// arrive on the main thread. Gating every window on it dropped any window an
@@ -19117,6 +19135,17 @@ unsafe extern "system" fn win_event_proc(
         _ => {}
     }
     let h = hwnd.0 as isize;
+    // Exclude genuine notification banners at the WinEvent boundary, before
+    // Add/Focused or a fullscreen/layout probe. This applies regardless of
+    // the opt-in fullscreen setting and does not suppress the notification.
+    if matches!(
+        event,
+        EVENT_OBJECT_SHOW | EVENT_SYSTEM_FOREGROUND | EVENT_OBJECT_UNCLOAKED
+    ) && !is_managed(h)
+        && ignore_unmanaged_toast_event(event, false, is_transient_overlay(hwnd))
+    {
+        return;
+    }
     if matches!(
         event,
         EVENT_OBJECT_HIDE | EVENT_OBJECT_DESTROY | EVENT_SYSTEM_MINIMIZESTART
@@ -25075,6 +25104,23 @@ mod tests {
     }
 
     #[test]
+    fn compact_notification_events_are_never_adopted_or_focused() {
+        for event in [
+            EVENT_OBJECT_SHOW,
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_OBJECT_UNCLOAKED,
+        ] {
+            assert!(ignore_unmanaged_toast_event(event, false, true));
+            assert!(!ignore_unmanaged_toast_event(event, false, false));
+            assert!(!ignore_unmanaged_toast_event(event, true, true));
+        }
+        // Destroy/hide must still be handled if a HWND was once tracked.
+        for event in [EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE] {
+            assert!(!ignore_unmanaged_toast_event(event, false, true));
+        }
+    }
+
+    #[test]
     fn native_fullscreen_independence_does_not_capture_monocle_tiles() {
         let normal_window = WS_CAPTION.0 | WS_THICKFRAME.0 | WS_SYSMENU.0;
         assert!(!native_fullscreen_policy(false, true, normal_window));
@@ -25150,13 +25196,44 @@ mod tests {
                 &screen
             ));
             assert!(!transient_overlay_shape(normal_main, 0, &banner, &screen));
-            assert!(!transient_overlay_shape(
+            // Very shallow edge banners remain independent even when the
+            // originating framework advertises cosmetic caption flags.
+            assert!(transient_overlay_shape(
                 small_topmost_popup | WS_CAPTION.0,
                 0,
                 &banner,
                 &screen
             ));
         }
+        // Regression from the user's 2026-10-30 screenshot: a compact
+        // top-edge message toast at approximately 115x0 and 350x80 must NEVER
+        // become a tile even if its host supplies APPWINDOW or caption bits.
+        let actual_toast_shape = RECT {
+            left: 115,
+            top: 0,
+            right: 465,
+            bottom: 80,
+        };
+        assert!(transient_overlay_shape(
+            WS_POPUP.0 | WS_CAPTION.0 | WS_SYSMENU.0,
+            WS_EX_APPWINDOW.0,
+            &actual_toast_shape,
+            &screen
+        ));
+        assert!(transient_overlay_shape(
+            WS_POPUP.0,
+            WS_EX_APPWINDOW.0 | WS_EX_LAYERED.0,
+            &actual_toast_shape,
+            &screen
+        ));
+        // Genuine main application windows with resizable/maximize chrome
+        // must remain tileable, even at the same top-edge coordinates.
+        assert!(!transient_overlay_shape(
+            normal_main,
+            WS_EX_APPWINDOW.0,
+            &actual_toast_shape,
+            &screen
+        ));
         // App-rendered Zalo/Chromium-style banner near the top edge. Some
         // frameworks omit WS_POPUP/TOPMOST/LAYERED or retain caption bits.
         let shallow_banner = RECT {
@@ -25177,7 +25254,7 @@ mod tests {
             &shallow_banner,
             &screen
         ));
-        assert!(!transient_overlay_shape(
+        assert!(transient_overlay_shape(
             WS_POPUP.0 | WS_CAPTION.0 | WS_SYSMENU.0,
             0,
             &shallow_banner,
