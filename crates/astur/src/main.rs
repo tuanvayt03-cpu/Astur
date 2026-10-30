@@ -12266,7 +12266,11 @@ unsafe fn untrack_window_with_focus(mgr: &mut Manager, h: isize, allow_focus: bo
             // real focus too, not whichever window Windows activates next
             // (plan/scrolling.md "Defaults"). Its stale FOREGROUND event then
             // fails Cmd::Focused's foreground check.
-            if focus_after_detach(was_focus, mgr.monitors[mi].layout == "scrolling", allow_focus) {
+            if focus_after_detach(
+                was_focus,
+                mgr.monitors[mi].layout == "scrolling",
+                allow_focus,
+            ) {
                 let f = mgr.monitors[mi].workspaces[wi].focused;
                 if f != 0 {
                     focus_window(f);
