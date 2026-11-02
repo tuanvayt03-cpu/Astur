@@ -2114,9 +2114,16 @@ const MOUSE_EAT_ALT_RESIZE_DOWN: usize = 7;
 const MOUSE_EAT_ALT_MOVE_UP: usize = 8;
 const MOUSE_EAT_ALT_RESIZE_UP: usize = 9;
 const MOUSE_EAT_NAMES: [&str; 10] = [
-    "launcher_dismiss", "launcher_wheel", "sysmenu_dismiss", "sysmenu_wheel",
-    "bar_wheel", "alt_wheel", "alt_move_down", "alt_resize_down",
-    "alt_move_up", "alt_resize_up",
+    "launcher_dismiss",
+    "launcher_wheel",
+    "sysmenu_dismiss",
+    "sysmenu_wheel",
+    "bar_wheel",
+    "alt_wheel",
+    "alt_move_down",
+    "alt_resize_down",
+    "alt_move_up",
+    "alt_resize_up",
 ];
 static MOUSE_EAT_COUNTS: [AtomicU64; 10] = [const { AtomicU64::new(0) }; 10];
 
@@ -25233,12 +25240,21 @@ mod tests {
     #[test]
     fn mouse_swallow_reasons_are_named_and_failed_popup_posts_do_not_eat_clicks() {
         assert_eq!(MOUSE_EAT_NAMES.len(), 10);
-        assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_LAUNCHER_DISMISS], "launcher_dismiss");
-        assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_SYSMENU_DISMISS], "sysmenu_dismiss");
+        assert_eq!(
+            MOUSE_EAT_NAMES[MOUSE_EAT_LAUNCHER_DISMISS],
+            "launcher_dismiss"
+        );
+        assert_eq!(
+            MOUSE_EAT_NAMES[MOUSE_EAT_SYSMENU_DISMISS],
+            "sysmenu_dismiss"
+        );
         assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_BAR_WHEEL], "bar_wheel");
         assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_ALT_WHEEL], "alt_wheel");
         assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_ALT_MOVE_DOWN], "alt_move_down");
-        assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_ALT_RESIZE_DOWN], "alt_resize_down");
+        assert_eq!(
+            MOUSE_EAT_NAMES[MOUSE_EAT_ALT_RESIZE_DOWN],
+            "alt_resize_down"
+        );
         assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_ALT_MOVE_UP], "alt_move_up");
         assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_ALT_RESIZE_UP], "alt_resize_up");
         assert!(!popup_dismiss_eats_click(false));

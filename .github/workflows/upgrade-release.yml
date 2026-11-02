@@ -2,7 +2,7 @@ name: Astur VI in-place update (preview)
 
 on:
   push:
-    branches: ["feat/vi-full-update-popup-v2", "fix/zalo-notification-maximize-input"]
+    branches: ["feat/vi-full-update-popup-v2"]
     paths:
       - ".github/workflows/upgrade-release.yml"
       - "packaging/astur-vi-update.iss"
@@ -22,7 +22,9 @@ env:
 
 jobs:
   upgrade:
-    if: github.ref == 'refs/heads/fix/zalo-notification-maximize-input'
+    # Prevent preview installation/release from merely pushing a fix branch.
+    # Explicit dispatch is required after verified live notification acceptance.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/fix/zalo-notification-maximize-input'
     runs-on: windows-latest
     steps:
       - name: Checkout
