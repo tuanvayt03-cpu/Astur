@@ -5126,8 +5126,7 @@ fn zalo_notification_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
         return false;
     }
     let at_top = rect.top >= monitor.top - 48 && rect.top <= monitor.top + 180;
-    let at_bottom = rect.bottom >= monitor.bottom - 180
-        && rect.bottom <= monitor.bottom + 48;
+    let at_bottom = rect.bottom >= monitor.bottom - 180 && rect.bottom <= monitor.bottom + 48;
     let popup_like = style & WS_POPUP.0 != 0
         || exstyle & (WS_EX_LAYERED.0 | WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) != 0
         || style & (WS_THICKFRAME.0 | WS_MAXIMIZEBOX.0) == 0;
@@ -8128,10 +8127,7 @@ unsafe fn check_focus_landed(f: isize) {
 unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     let v = &mut *(lparam.0 as *mut Vec<isize>);
     if app_window_reject(hwnd).is_none()
-        && native_independence_enabled(
-            hwnd,
-            INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire),
-        )
+        && native_independence_enabled(hwnd, INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire))
     {
         independent_remember(hwnd.0 as isize, true);
     }
@@ -8145,10 +8141,7 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
 // as those that start later; restore-down can then trigger re-adoption.
 unsafe extern "system" fn independent_enum_proc(hwnd: HWND, _: LPARAM) -> BOOL {
     if app_window_reject(hwnd).is_none()
-        && native_independence_enabled(
-            hwnd,
-            INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire),
-        )
+        && native_independence_enabled(hwnd, INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire))
     {
         independent_remember(hwnd.0 as isize, true);
     }
@@ -19412,9 +19405,7 @@ unsafe extern "system" fn win_event_proc(
             // may deliver minimize/geometry events before it becomes visible
             // again; clearing now strands a restored normal-size window outside
             // Astur's registry, with no pending re-adoption.
-            if event == EVENT_SYSTEM_MINIMIZEEND
-                && (independent_seen(h) || !is_managed(h))
-            {
+            if event == EVENT_SYSTEM_MINIMIZEEND && (independent_seen(h) || !is_managed(h)) {
                 push_cmd(Cmd::RefreshIndependence(h));
             }
             // Only h's own monitor can change (TILE-3). This used to re-place
@@ -25582,8 +25573,8 @@ mod tests {
 
     #[test]
     fn animations_never_block_input_to_underlying_windows() {
-        let through = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE
-            | WS_EX_LAYERED | WS_EX_TRANSPARENT;
+        let through =
+            WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT;
         for duration in [0, 140, 250, 251, 750, 2000] {
             assert_eq!(overlay_ex_style(duration), through);
         }
