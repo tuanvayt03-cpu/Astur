@@ -51,6 +51,7 @@ jobs:
         run: |
           python -m py_compile scripts/capture_notification_windows.py scripts/capture_zalo_popup_episodes.py scripts/capture_zalo_click_blocker.py
           python scripts/capture_zalo_click_blocker.py --self-test
+          python scripts/capture_zalo_click_blocker.py --smoke
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings

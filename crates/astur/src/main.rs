@@ -500,6 +500,11 @@ fn counters_line() -> String {
     for (name, n) in EVC_NAMES.iter().zip(EV_COUNTS.iter()) {
         let _ = write!(s, "{name}={} ", n.load(Ordering::Relaxed));
     }
+    if log_on(LOG_DEBUG) {
+        for (name, n) in MOUSE_EAT_NAMES.iter().zip(MOUSE_EAT_COUNTS.iter()) {
+            let _ = write!(s, "mouse_eat_{name}={} ", n.load(Ordering::Relaxed));
+        }
+    }
     let gdi = unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
     // A flag stuck at true is a bar title frozen for good with no error
     // anywhere (BAR-10), so it is shown next to the queue it gates.
@@ -2095,6 +2100,40 @@ unsafe fn alt_wheel_scrolls(pt: POINT) -> bool {
     SCROLLMON_N.load(Ordering::Relaxed) != 0 && !drag_active() && main_held() && scrollmon_at(pt)
 }
 
+// Reasons for a deliberately eaten low-level mouse event. No HWNDs, cursor
+// coordinates, window text or other user data are recorded. The hook does not
+// allocate or hold a mutex. Debug counters are read by the existing watchdog.
+const MOUSE_EAT_LAUNCHER_DISMISS: usize = 0;
+const MOUSE_EAT_LAUNCHER_WHEEL: usize = 1;
+const MOUSE_EAT_SYSMENU_DISMISS: usize = 2;
+const MOUSE_EAT_SYSMENU_WHEEL: usize = 3;
+const MOUSE_EAT_BAR_WHEEL: usize = 4;
+const MOUSE_EAT_ALT_WHEEL: usize = 5;
+const MOUSE_EAT_ALT_MOVE_DOWN: usize = 6;
+const MOUSE_EAT_ALT_RESIZE_DOWN: usize = 7;
+const MOUSE_EAT_ALT_MOVE_UP: usize = 8;
+const MOUSE_EAT_ALT_RESIZE_UP: usize = 9;
+const MOUSE_EAT_NAMES: [&str; 10] = [
+    "launcher_dismiss", "launcher_wheel", "sysmenu_dismiss", "sysmenu_wheel",
+    "bar_wheel", "alt_wheel", "alt_move_down", "alt_resize_down",
+    "alt_move_up", "alt_resize_up",
+];
+static MOUSE_EAT_COUNTS: [AtomicU64; 10] = [const { AtomicU64::new(0) }; 10];
+
+#[inline]
+fn mouse_eat(reason: usize) -> LRESULT {
+    if log_on(LOG_DEBUG) {
+        MOUSE_EAT_COUNTS[reason].fetch_add(1, Ordering::Relaxed);
+    }
+    LRESULT(1)
+}
+
+/// A failed post to a destroyed popup cannot justify swallowing a desktop
+/// click. It is safe to suppress the click only if dismissal was delivered.
+fn popup_dismiss_eats_click(posted: bool) -> bool {
+    posted
+}
+
 unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     // Proof of life for the watchdog. One relaxed store; hook-legal.
     hook_alive_stamp();
@@ -2108,7 +2147,6 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
     }
     let pt = info.pt;
     let msg = wparam.0 as u32;
-    let suppress = LRESULT(1);
     // A click (any button) or the wheel (either axis) reveals a running motion
     // now, except an Alt+wheel that scrolls a strip: the command it queues
     // re-aims the motion.
@@ -2136,8 +2174,13 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         let hl = LAUNCHER_HWND.load(Ordering::Relaxed);
         if hl != 0 {
             if matches!(msg, WM_LBUTTONDOWN | WM_RBUTTONDOWN) && !inside {
-                let _ = PostMessageW(hwnd_from(hl), WM_LAUNCHER, WPARAM(LA_CLOSE), LPARAM(0));
-                return suppress; // eat the dismissing click so it doesn't also act
+                let posted =
+                    PostMessageW(hwnd_from(hl), WM_LAUNCHER, WPARAM(LA_CLOSE), LPARAM(0)).is_ok();
+                if popup_dismiss_eats_click(posted) {
+                    return mouse_eat(MOUSE_EAT_LAUNCHER_DISMISS);
+                }
+                // The popup HWND was destroyed: don't steal the user's click.
+                LAUNCHER_OPEN.store(false, Ordering::Relaxed);
             }
             if msg == WM_MOUSEWHEEL && inside {
                 // Wheel delta rides the high word of mouseData (signed, ±120/notch).
@@ -2145,7 +2188,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                 let step: isize = if delta > 0 { 1 } else { -1 };
                 let _ = PostMessageW(hwnd_from(hl), WM_LAUNCHER, WPARAM(LA_SCROLL), LPARAM(step));
                 mask_eaten_wheel();
-                return suppress;
+                return mouse_eat(MOUSE_EAT_LAUNCHER_WHEEL);
             }
         }
     }
@@ -2157,15 +2200,19 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         let hs = SYSMENU_HWND.load(Ordering::Relaxed);
         if hs != 0 {
             if matches!(msg, WM_LBUTTONDOWN | WM_RBUTTONDOWN) && !inside {
-                let _ = PostMessageW(hwnd_from(hs), WM_SYSMENU, WPARAM(SM_CLOSE), LPARAM(0));
-                return suppress;
+                let posted =
+                    PostMessageW(hwnd_from(hs), WM_SYSMENU, WPARAM(SM_CLOSE), LPARAM(0)).is_ok();
+                if popup_dismiss_eats_click(posted) {
+                    return mouse_eat(MOUSE_EAT_SYSMENU_DISMISS);
+                }
+                SYSMENU_OPEN.store(false, Ordering::Relaxed);
             }
             if msg == WM_MOUSEWHEEL && inside {
                 let delta = ((info.mouseData >> 16) as u16 as i16) as isize;
                 let act = if delta > 0 { SM_UP } else { SM_DOWN };
                 let _ = PostMessageW(hwnd_from(hs), WM_SYSMENU, WPARAM(act), LPARAM(0));
                 mask_eaten_wheel();
-                return suppress;
+                return mouse_eat(MOUSE_EAT_SYSMENU_WHEEL);
             }
         }
     }
@@ -2194,7 +2241,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                     LPARAM(pt.x as isize),
                 );
                 mask_eaten_wheel();
-                return suppress;
+                return mouse_eat(MOUSE_EAT_BAR_WHEEL);
             }
         }
     }
@@ -2233,7 +2280,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                 y: pt.y,
             });
         }
-        return suppress;
+        return mouse_eat(MOUSE_EAT_ALT_WHEEL);
     }
 
     match msg {
@@ -2286,7 +2333,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                     ANY_DRAG.store(true, Ordering::Relaxed);
                     drop(s);
                     begin_drag(src, generation);
-                    return suppress;
+                    return mouse_eat(MOUSE_EAT_ALT_MOVE_DOWN);
                 } else if GetWindowRect(hwnd, &mut rect).is_ok() {
                     let mut s = STATE.lock().unwrap();
                     s.mode = Mode::Move;
@@ -2306,7 +2353,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                     ANY_DRAG.store(true, Ordering::Relaxed);
                     drop(s);
                     begin_drag(src, generation);
-                    return suppress;
+                    return mouse_eat(MOUSE_EAT_ALT_MOVE_DOWN);
                 }
             }
         }
@@ -2343,7 +2390,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                     ANY_DRAG.store(true, Ordering::Relaxed);
                     drop(s);
                     begin_drag(src, generation);
-                    return suppress;
+                    return mouse_eat(MOUSE_EAT_ALT_RESIZE_DOWN);
                 }
             }
         }
@@ -2435,7 +2482,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                         bottom: cy + ch,
                     },
                 ));
-                return suppress;
+                return mouse_eat(MOUSE_EAT_ALT_MOVE_UP);
             }
         }
         WM_RBUTTONUP if ANY_DRAG.load(Ordering::Relaxed) => {
@@ -2457,7 +2504,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                     }),
                 ));
                 hide_marker();
-                return suppress;
+                return mouse_eat(MOUSE_EAT_ALT_RESIZE_UP);
             }
         }
         _ => {}
@@ -25181,6 +25228,21 @@ mod tests {
         for event in [EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE] {
             assert!(!ignore_unmanaged_toast_event(event, false, true));
         }
+    }
+
+    #[test]
+    fn mouse_swallow_reasons_are_named_and_failed_popup_posts_do_not_eat_clicks() {
+        assert_eq!(MOUSE_EAT_NAMES.len(), 10);
+        assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_LAUNCHER_DISMISS], "launcher_dismiss");
+        assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_SYSMENU_DISMISS], "sysmenu_dismiss");
+        assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_BAR_WHEEL], "bar_wheel");
+        assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_ALT_WHEEL], "alt_wheel");
+        assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_ALT_MOVE_DOWN], "alt_move_down");
+        assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_ALT_RESIZE_DOWN], "alt_resize_down");
+        assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_ALT_MOVE_UP], "alt_move_up");
+        assert_eq!(MOUSE_EAT_NAMES[MOUSE_EAT_ALT_RESIZE_UP], "alt_resize_up");
+        assert!(!popup_dismiss_eats_click(false));
+        assert!(popup_dismiss_eats_click(true));
     }
 
     #[test]

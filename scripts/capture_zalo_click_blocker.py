@@ -48,6 +48,13 @@ def suspicious_windows(frame):
 
 
 def setup_user32(win):
+    # DWM's visible frame can be much smaller than a transparent window's
+    # real input rectangle; sample both before attributing mouse blockage.
+    win.dwm = ctypes.WinDLL("dwmapi", use_last_error=True)
+    win.dwm.DwmGetWindowAttribute.argtypes = [
+        wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD
+    ]
+    win.dwm.DwmGetWindowAttribute.restype = ctypes.c_long
     win.u.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
     win.u.GetCursorPos.restype = wintypes.BOOL
     win.u.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
@@ -87,6 +94,16 @@ def monitor_for_cursor(win, cursor):
     return (r.left, r.top, r.right, r.bottom)
 
 
+def visible_frame_bounds(win, hwnd):
+    """Read-only DWM frame bounds, which may differ from the input rectangle."""
+    bounds = win.RECT()
+    result = win.dwm.DwmGetWindowAttribute(
+        hwnd, 9, ctypes.byref(bounds), ctypes.sizeof(bounds))
+    if result != 0:
+        return None
+    return [bounds.left, bounds.top, bounds.right, bounds.bottom]
+
+
 def hit(win, frame, x, y):
     hwnd = win.u.WindowFromPoint(wintypes.POINT(x, y))
     root = win.u.GetAncestor(hwnd, 2) if hwnd else None
@@ -102,6 +119,7 @@ def hit(win, frame, x, y):
         "at": [x, y], "hit_hwnd": int(hwnd or 0), "root_hwnd": rid,
         "root_exe": metadata.get("exe", ""), "root_class": metadata.get("class", ""),
         "root_rect": metadata.get("rect"),
+        "root_visible_frame": visible_frame_bounds(win, rid) if rid else None,
     }
 
 
@@ -133,6 +151,8 @@ def observe(win):
     cursor = cursor_position(win)
     monitor = monitor_for_cursor(win, cursor)
     suspects = suspicious_windows(frame)
+    for item in suspects:
+        item["visible_frame"] = visible_frame_bounds(win, item["hwnd"])
     if not monitor:
         return {"cursor": cursor, "monitor": None, "hits": [],
                 "suspects": suspects, "capture_state": capture_state(win, suspects)}
