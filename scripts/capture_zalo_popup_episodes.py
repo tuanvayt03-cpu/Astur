@@ -31,6 +31,14 @@ def is_toast_shape(rect, monitor):
             and ((my - 35 <= y <= my + 55)
                  or (mb - 55 <= bottom <= mb + 35)))
 
+def hit_sample_points(monitor):
+    """Read-only hit-test points across the screen's lower edge."""
+    left, top, right, bottom = monitor
+    width, height = right - left, bottom - top
+    return [(left + width * fraction // 100, bottom - offset)
+            for offset in (40, min(180, height // 4))
+            for fraction in (20, 50, 80)]
+
 def episode_transition(previous, current, age, title_length_changed):
     """One occurrence per SHOW episode; a distinct metadata change is tentative."""
     if previous is None:
@@ -50,7 +58,9 @@ def self_test():
     assert episode_transition(None, {}, 0, False) == "new-window"
     assert episode_transition({}, {}, 1, False) is None
     assert episode_transition({}, {}, 3, True) == "metadata-change"
-    print("PASS: 9 independent toast detection and episode assertions")
+    points = hit_sample_points(screen)
+    assert len(points) == 6 and all(0 <= x < 1920 and 0 <= y < 1080 for x, y in points)
+    print("PASS: 10 independent toast and mouse hit-test assertions")
 
 def desktop_dir():
     # Resolve the Windows Desktop known folder (including redirected desktops).
@@ -91,6 +101,10 @@ class Win32:
         self.u.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
         self.u.GetWindowThreadProcessId.restype = wintypes.DWORD
         self.u.GetForegroundWindow.restype = wintypes.HWND
+        self.u.WindowFromPoint.argtypes = [wintypes.POINT]
+        self.u.WindowFromPoint.restype = wintypes.HWND
+        self.u.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+        self.u.GetAncestor.restype = wintypes.HWND
         self.u.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
         self.u.MonitorFromWindow.restype = wintypes.HANDLE
         self.u.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MONITORINFO)]
@@ -116,6 +130,25 @@ class Win32:
                 self.k.CloseHandle(handle)
         self.cache[pid] = name
         return name
+
+    def input_targets(self, frame, monitor):
+        """Read-only WindowFromPoint: identify who would receive mouse input.
+        Does not click, focus, modify window styles, or collect message text.
+        """
+        result = []
+        for x, y in hit_sample_points(monitor):
+            leaf = self.u.WindowFromPoint(wintypes.POINT(x, y))
+            root = self.u.GetAncestor(leaf, 2) if leaf else None
+            root_id = int(root or leaf or 0)
+            window = frame.get(root_id, {})
+            result.append({
+                "point": [x, y], "hit_hwnd": int(leaf or 0),
+                "root_hwnd": root_id,
+                "root_exe": window.get("exe", ""),
+                "root_class": window.get("class", ""),
+                "root_rect": window.get("rect"),
+            })
+        return result
 
     def snapshot(self):
         out = {}
@@ -263,13 +296,15 @@ def run(args):
                             "layout_before": app_layout(previous),
                             "layout_during": app_layout(frame),
                             "geometry_changes_immediate": changes(app_layout(previous), app_layout(frame)),
+                            "mouse_hit_targets": win.input_targets(frame, info["monitor"]),
                         }
                         out.write(json.dumps(record, ensure_ascii=False) + "\n")
-                        pending.append((now + 1.2, record["number"], app_layout(previous)))
+                        pending.append((now + 1.2, record["number"], app_layout(previous),
+                                        info["monitor"]))
                         print("Detected candidate %d/%d | %s | exe=%s class=%s" %
                               (counted, args.target, kind, info["exe"], info["class"]), flush=True)
                     last_seen[h] = now
-                for due, number, baseline in pending[:]:
+                for due, number, baseline, monitor in pending[:]:
                     if now >= due:
                         out.write(json.dumps({
                             "event": "AFTER_1.2S", "number": number,
@@ -278,8 +313,9 @@ def run(args):
                             "foreground_exe": frame.get(fg, {}).get("exe", ""),
                             "layout_after": app_layout(frame),
                             "geometry_changes": changes(baseline, app_layout(frame)),
+                            "mouse_hit_targets": win.input_targets(frame, monitor),
                         }, ensure_ascii=False) + "\n")
-                        pending.remove((due, number, baseline))
+                        pending.remove((due, number, baseline, monitor))
                 previous, fg_previous = frame, fg
                 previous_ids = set(current)
                 if counted >= args.target:
@@ -289,14 +325,15 @@ def run(args):
                     while pending and time.monotonic() < ending:
                         time.sleep(0.1)
                         f, fg = win.snapshot()
-                        for due, number, baseline in pending[:]:
+                        for due, number, baseline, monitor in pending[:]:
                             if time.monotonic() >= due:
                                 out.write(json.dumps({
                                     "event": "AFTER_1.2S", "number": number,
                                     "layout_after": app_layout(f),
                                     "geometry_changes": changes(baseline, app_layout(f)),
+                                    "mouse_hit_targets": win.input_targets(f, monitor),
                                 }, ensure_ascii=False) + "\n")
-                                pending.remove((due, number, baseline))
+                                pending.remove((due, number, baseline, monitor))
                     break
                 time.sleep(args.interval)
         except KeyboardInterrupt:
@@ -311,7 +348,9 @@ def run(args):
             "duration_seconds": round(time.monotonic() - started, 2),
             "capture": "Win32 HWND metadata only; candidates are shape-based, not proven Zalo",
             "limitations": ("Native top-level HWND changes only; re-used renderer HWND "
-                            "without metadata changes or in-page/browser UI will not count."),
+                            "without metadata changes or in-page/browser UI will not count. "
+                            "Mouse hit tests identify the topmost receiving HWND at six "
+                            "screen points, not whether a click was physically blocked."),
             "raw_log": str(log_path), "stats": stats,
         }
         out.write(json.dumps({"event": "FINISH", **summary}, ensure_ascii=False) + "\n")

@@ -718,30 +718,12 @@ const MARK_TOP_LIFT: i32 = 8;
 // Window class for the transient workspace-slide overlay.
 const SLIDE_CLASS: PCWSTR = w!("astur_slide");
 
-/// Longest configured animation_ms whose slide / glide overlays let input
-/// through (SWITCH-14).
-const CLICK_THROUGH_MAX_MS: i32 = 250;
-
-/// Extended style for the slide and glide overlays. Up to
-/// CLICK_THROUGH_MAX_MS they are layered + transparent, so clicks, the wheel
-/// and Alt+drag go straight to the real windows, which are already at their
-/// final place underneath; before, the overlay ate every work-area click for
-/// the whole animation (140-245 ms at the defaults), and an Alt+drag started
-/// in that window grabbed the overlay itself (WindowFromPoint skips only
-/// layered + transparent windows; drag_root_at now refuses an overlay, so
-/// such a drag is lost rather than misdirected). The trade-off, accepted:
-/// during the animation a click acts on the final layout while old or
-/// in-between frames still show. At the default 140 ms that is under
-/// reaction time, like the animations-off path; the config allows up to
-/// 2000 ms, where a misdirected click would be noticeable, so longer
-/// animations keep blocking input.
-fn overlay_ex_style(animation_ms: i32) -> WINDOW_EX_STYLE {
-    let base = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE;
-    if animation_ms <= CLICK_THROUGH_MAX_MS {
-        base | WS_EX_LAYERED | WS_EX_TRANSPARENT
-    } else {
-        base
-    }
+/// Cosmetic slide/glide overlays must never steal clicks, mouse wheel or
+/// Alt-drag from another app. A long animation may visually lag the already
+/// committed real layout; input intentionally follows the REAL windows,
+/// rather than blocking the entire monitor for up to 2000 ms.
+fn overlay_ex_style(_animation_ms: i32) -> WINDOW_EX_STYLE {
+    WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT
 }
 
 /// A layered overlay shows nothing until it has attributes, so a failed SLWA
@@ -2033,9 +2015,8 @@ unsafe fn root_window_at(pt: POINT) -> Option<HWND> {
 /// root_window_at for an Alt-drag: a tab bar stands for its column's shown
 /// tab (GWLP_USERDATA, written by tab_bars_sync on this same thread), so
 /// Alt-dragging a tabbed column by its bar drags the column, and the bar
-/// itself is never dragged off its column. A slide or motion overlay still
-/// up (one longer than CLICK_THROUGH_MAX_MS takes clicks) is never dragged:
-/// None, the click only reveals it. Neither is a shell surface (Start, Quick
+/// itself is never dragged off its column. Slide and motion overlays are
+/// click-through, so WindowFromPoint reaches the real underlying app. Neither is a shell surface (Start, Quick
 /// Settings, the notification centre, the taskbar), which used to move and
 /// resize like an app: None, so the Alt+click reaches it as a plain click.
 /// Hook-legal: user32 reads into a stack buffer, no lock, no allocation; and
@@ -5125,6 +5106,65 @@ fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
         || shallow_edge_banner
 }
 
+/// Zalo can supply ordinary Chromium APPWINDOW/chrome bits for a transient
+/// popup. Require BOTH the originating executable and a compact screen-edge
+/// shape: the real Zalo chat window must remain eligible for tiling, including
+/// when maximized or resized.
+fn zalo_notification_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT) -> bool {
+    let w = i64::from(rect.right) - i64::from(rect.left);
+    let h = i64::from(rect.bottom) - i64::from(rect.top);
+    let sw = i64::from(monitor.right) - i64::from(monitor.left);
+    let sh = i64::from(monitor.bottom) - i64::from(monitor.top);
+    if w <= 0
+        || h <= 0
+        || sw <= 0
+        || sh <= 0
+        || w * 3 > sw * 2
+        || h * 3 > sh
+        || style & WS_CHILD.0 != 0
+    {
+        return false;
+    }
+    let at_top = rect.top >= monitor.top - 48 && rect.top <= monitor.top + 180;
+    let at_bottom = rect.bottom >= monitor.bottom - 180
+        && rect.bottom <= monitor.bottom + 48;
+    let popup_like = style & WS_POPUP.0 != 0
+        || exstyle & (WS_EX_LAYERED.0 | WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) != 0
+        || style & (WS_THICKFRAME.0 | WS_MAXIMIZEBOX.0) == 0;
+    (at_top || at_bottom) && popup_like
+}
+
+fn is_zalo_executable(path: &str) -> bool {
+    let name = path.rsplit(['\\', '/']).next().unwrap_or(path);
+    name.eq_ignore_ascii_case("zalo.exe") || name.eq_ignore_ascii_case("zalopc.exe")
+}
+
+/// Slower process identity probe only runs after the geometry/style filter.
+/// Never changes Zalo's window flags, z-order, focus or click behavior.
+unsafe fn is_zalo_notification_overlay(hwnd: HWND) -> bool {
+    let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+    let exstyle = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    let mut rect = RECT::default();
+    if GetWindowRect(hwnd, &mut rect).is_err() {
+        return false;
+    }
+    let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    let mut info = MONITORINFO {
+        cbSize: core::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if !GetMonitorInfoW(hmon, &mut info).as_bool()
+        || !zalo_notification_shape(style, exstyle, &rect, &info.rcMonitor)
+    {
+        return false;
+    }
+    window_exe(hwnd).is_some_and(|exe| is_zalo_executable(&exe))
+}
+
+unsafe fn is_notification_overlay(hwnd: HWND) -> bool {
+    is_transient_overlay(hwnd) || is_zalo_notification_overlay(hwnd)
+}
+
 /// Never ShowWindow/SetWindowPos here: notification display, click, animation
 /// and dismissal remain entirely owned by Windows or the originating app.
 unsafe fn is_transient_overlay(hwnd: HWND) -> bool {
@@ -5212,8 +5252,8 @@ unsafe fn app_window_reject(hwnd: HWND) -> Option<&'static str> {
     }
     // Notification/toast-like overlays stay visible above the tiled grid,
     // but never enter ws.windows/ws.floating, tab bars or focus bookkeeping.
-    // This is not a blacklist of Telegram, Zalo or any other application.
-    if is_transient_overlay(hwnd) {
+    // Generic classifier plus a narrow Zalo executable/shape fallback.
+    if is_notification_overlay(hwnd) {
         return Some("transient-overlay");
     }
     (GetWindowTextLengthW(hwnd) <= 0).then_some("untitled")
@@ -5272,6 +5312,21 @@ fn independent_remember(h: isize, remember: bool) -> bool {
     }
 }
 
+/// A real Windows maximize is always user intent, even when the optional
+/// independence mode for borderless media/popups is disabled in config.
+fn native_independence_required(maximized: bool, opt_in: bool, other_native: bool) -> bool {
+    maximized || (opt_in && other_native)
+}
+
+unsafe fn native_independence_enabled(hwnd: HWND, opt_in: bool) -> bool {
+    let maximized = IsZoomed(hwnd).as_bool();
+    native_independence_required(
+        maximized,
+        opt_in,
+        !maximized && opt_in && independent_native_surface(hwnd),
+    )
+}
+
 /// Is this a normal top-level application window we should tile?
 unsafe fn is_manageable(hwnd: HWND) -> bool {
     manage_reject(hwnd).is_none()
@@ -5282,8 +5337,8 @@ unsafe fn manage_reject(hwnd: HWND) -> Option<&'static str> {
     if let Some(why) = app_window_reject(hwnd) {
         return Some(why);
     }
-    if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire) && independent_native_surface(hwnd) {
-        return Some("independent-fullscreen-popup");
+    if native_independence_enabled(hwnd, INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire)) {
+        return Some("independent-native-window");
     }
     // After the cheap checks, so only a would-be tile pays the OpenProcess
     // and token read. Startup adoption (enum_proc) runs this same chain.
@@ -6935,14 +6990,12 @@ unsafe fn workspace_layout(mgr: &Manager, mi: usize, wi: usize) -> Vec<(isize, R
     // unrelated retile is already queued: omit that native fullscreen surface
     // from placement immediately, before any SW_RESTORE or SetWindowPos, even
     // if it has not yet been detached from the managed registry.
-    let tiled: Vec<isize> = if mgr.cfg.independent_fullscreen_popups {
-        tiled
-            .into_iter()
-            .filter(|&h| !independent_native_surface(hwnd_from(h)))
-            .collect()
-    } else {
-        tiled
-    };
+    let tiled: Vec<isize> = tiled
+        .into_iter()
+        .filter(|&h| {
+            !native_independence_enabled(hwnd_from(h), mgr.cfg.independent_fullscreen_popups)
+        })
+        .collect();
     let n = tiled.len();
     if n == 0 {
         return Vec::new();
@@ -7424,6 +7477,11 @@ unsafe fn place_tiles(rects: Vec<(isize, RECT)>, map: &PlaceMap, probe: &mut Pro
     let mut slowest = (0u128, 0isize);
     SUPPRESS.store(true, Ordering::Relaxed);
     for (h, target) in rects {
+        // A delayed retile may have calculated this tile before the user
+        // maximized it. Never overwrite a newer native maximize intent.
+        if IsZoomed(hwnd_from(h)).as_bool() {
+            continue;
+        }
         let t = timed.then(Instant::now);
         animate_to(hwnd_from(h), target, map);
         if let Some(t) = t {
@@ -8069,9 +8127,11 @@ unsafe fn check_focus_landed(f: isize) {
 
 unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     let v = &mut *(lparam.0 as *mut Vec<isize>);
-    if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire)
-        && app_window_reject(hwnd).is_none()
-        && independent_native_surface(hwnd)
+    if app_window_reject(hwnd).is_none()
+        && native_independence_enabled(
+            hwnd,
+            INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire),
+        )
     {
         independent_remember(hwnd.0 as isize, true);
     }
@@ -8084,7 +8144,12 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
 // On enabling the option, remember already-open independent windows as well
 // as those that start later; restore-down can then trigger re-adoption.
 unsafe extern "system" fn independent_enum_proc(hwnd: HWND, _: LPARAM) -> BOOL {
-    if app_window_reject(hwnd).is_none() && independent_native_surface(hwnd) {
+    if app_window_reject(hwnd).is_none()
+        && native_independence_enabled(
+            hwnd,
+            INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire),
+        )
+    {
         independent_remember(hwnd.0 as isize, true);
     }
     BOOL(1)
@@ -12317,10 +12382,6 @@ fn independence_recheck(
 /// app stays truly independent. Only normal-size restored windows are eligible
 /// for adoption. Do not bring any other tiles above the fullscreen window.
 unsafe fn reconcile_independence(mgr: &mut Manager, h: isize) {
-    if !mgr.cfg.independent_fullscreen_popups {
-        independent_remember(h, false);
-        return;
-    }
     let hwnd = hwnd_from(h);
     if !IsWindow(hwnd).as_bool() {
         independent_remember(h, false);
@@ -12328,7 +12389,9 @@ unsafe fn reconcile_independence(mgr: &mut Manager, h: isize) {
     }
     let visible = IsWindowVisible(hwnd).as_bool();
     let minimized = IsIconic(hwnd).as_bool();
-    let native = visible && !minimized && independent_native_surface(hwnd);
+    let native = visible
+        && !minimized
+        && native_independence_enabled(hwnd, mgr.cfg.independent_fullscreen_popups);
     match independence_recheck(independent_seen(h), visible, minimized, native) {
         IndependentRecheck::Defer | IndependentRecheck::Ignore => {}
         IndependentRecheck::Detach => {
@@ -12476,9 +12539,10 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     }
                 }
                 None => {
-                    if mgr.cfg.independent_fullscreen_popups
-                        && independent_native_surface(hwnd_from(h))
-                    {
+                    if native_independence_enabled(
+                        hwnd_from(h),
+                        mgr.cfg.independent_fullscreen_popups,
+                    ) {
                         independent_remember(h, true);
                     }
                     // An app Astur launched that came up elevated is refused
@@ -13183,6 +13247,15 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
             focus_window(h);
         }
         Cmd::DragResized(h, rect) => {
+            // MOVESIZEEND can arrive before the LOCATIONCHANGE/FOREGROUND
+            // reconciliation. Honor a native title-bar snap/maximize before
+            // the queued retile has a chance to put the app back in its tile.
+            if rect.is_none() {
+                reconcile_independence(mgr, h);
+                if independent_seen(h) {
+                    return;
+                }
+            }
             // Tiled resize: apply its final slot once. Floating/unmanaged
             // windows keep the exact release rect; native drags already landed.
             if let Some(r) = rect {
@@ -19142,7 +19215,7 @@ unsafe extern "system" fn win_event_proc(
         event,
         EVENT_OBJECT_SHOW | EVENT_SYSTEM_FOREGROUND | EVENT_OBJECT_UNCLOAKED
     ) && !is_managed(h)
-        && ignore_unmanaged_toast_event(event, false, is_transient_overlay(hwnd))
+        && ignore_unmanaged_toast_event(event, false, is_notification_overlay(hwnd))
     {
         return;
     }
@@ -19217,11 +19290,13 @@ unsafe extern "system" fn win_event_proc(
     }
     // This hook already observes F11 and native maximize geometry changes.
     // Reconcile on the manager thread, never mutate a foreign HWND here.
-    if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire)
-        && matches!(event, EVENT_OBJECT_LOCATIONCHANGE | EVENT_SYSTEM_FOREGROUND)
+    if matches!(event, EVENT_OBJECT_LOCATIONCHANGE | EVENT_SYSTEM_FOREGROUND)
         && NATIVE_DRAG.load(Ordering::Relaxed) != h
         && !ANY_DRAG.load(Ordering::Relaxed)
         && (is_managed(h) || independent_seen(h))
+        && (INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Relaxed)
+            || independent_seen(h)
+            || IsZoomed(hwnd).as_bool())
     {
         push_cmd(Cmd::RefreshIndependence(h));
     }
@@ -19337,8 +19412,7 @@ unsafe extern "system" fn win_event_proc(
             // may deliver minimize/geometry events before it becomes visible
             // again; clearing now strands a restored normal-size window outside
             // Astur's registry, with no pending re-adoption.
-            if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire)
-                && event == EVENT_SYSTEM_MINIMIZEEND
+            if event == EVENT_SYSTEM_MINIMIZEEND
                 && (independent_seen(h) || !is_managed(h))
             {
                 push_cmd(Cmd::RefreshIndependence(h));
@@ -19358,9 +19432,7 @@ unsafe extern "system" fn win_event_proc(
         }
         EVENT_SYSTEM_MOVESIZEEND => {
             NATIVE_DRAG.store(0, Ordering::Relaxed);
-            if INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire)
-                && (is_managed(h) || independent_seen(h))
-            {
+            if is_managed(h) || independent_seen(h) {
                 push_cmd(Cmd::RefreshIndependence(h));
             }
             // No preview rect here — the window is already where the user put it;
@@ -25121,6 +25193,66 @@ mod tests {
     }
 
     #[test]
+    fn native_maximize_always_takes_precedence_over_optional_popup_independence() {
+        assert!(native_independence_required(true, false, false));
+        assert!(native_independence_required(true, true, false));
+        assert!(native_independence_required(false, true, true));
+        assert!(!native_independence_required(false, false, true));
+        assert!(!native_independence_required(false, true, false));
+    }
+
+    #[test]
+    fn zalo_notification_is_filtered_without_ignoring_normal_chat_window() {
+        let screen = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let toast = RECT {
+            left: 115,
+            top: 0,
+            right: 465,
+            bottom: 80,
+        };
+        let tall_toast = RECT {
+            left: 260,
+            top: 70,
+            right: 850,
+            bottom: 275,
+        };
+        let chat = RECT {
+            left: 0,
+            top: 0,
+            right: 960,
+            bottom: 1040,
+        };
+        assert!(is_zalo_executable(r"C:\Program Files\Zalo\Zalo.exe"));
+        assert!(is_zalo_executable("ZALOPC.EXE"));
+        assert!(!is_zalo_executable("Telegram.exe"));
+        assert!(zalo_notification_shape(
+            WS_POPUP.0 | WS_CAPTION.0,
+            WS_EX_APPWINDOW.0,
+            &toast,
+            &screen
+        ));
+        assert!(zalo_notification_shape(
+            WS_POPUP.0 | WS_THICKFRAME.0,
+            WS_EX_APPWINDOW.0,
+            &tall_toast,
+            &screen
+        ));
+        assert!(!zalo_notification_shape(0x00CF_0000, 0, &chat, &screen));
+        assert!(!zalo_notification_shape(
+            0x00CF_0000,
+            WS_EX_APPWINDOW.0,
+            &toast,
+            &screen
+        ));
+        assert!(!zalo_notification_shape(WS_POPUP.0, 0, &screen, &screen));
+    }
+
+    #[test]
     fn native_fullscreen_independence_does_not_capture_monocle_tiles() {
         let normal_window = WS_CAPTION.0 | WS_THICKFRAME.0 | WS_SYSMENU.0;
         assert!(!native_fullscreen_policy(false, true, normal_window));
@@ -25449,16 +25581,12 @@ mod tests {
     }
 
     #[test]
-    fn short_animations_let_clicks_through_their_overlays() {
-        let blocking = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE;
-        let through = blocking | WS_EX_LAYERED | WS_EX_TRANSPARENT;
-        assert_eq!(overlay_ex_style(140), through); // the default
-        assert_eq!(overlay_ex_style(0), through);
-        assert_eq!(overlay_ex_style(CLICK_THROUGH_MAX_MS), through);
-        // Long animations keep blocking input: a click would land on a layout
-        // the user has not seen yet.
-        assert_eq!(overlay_ex_style(CLICK_THROUGH_MAX_MS + 1), blocking);
-        assert_eq!(overlay_ex_style(2000), blocking);
+    fn animations_never_block_input_to_underlying_windows() {
+        let through = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE
+            | WS_EX_LAYERED | WS_EX_TRANSPARENT;
+        for duration in [0, 140, 250, 251, 750, 2000] {
+            assert_eq!(overlay_ex_style(duration), through);
+        }
     }
 
     #[test]
