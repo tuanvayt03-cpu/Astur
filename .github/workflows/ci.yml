@@ -47,8 +47,10 @@ jobs:
       - name: Preview packaging safety
         run: python scripts/test_preview_packaging.py
 
-      - name: Notification diagnostics syntax
-        run: python -m py_compile scripts/capture_notification_windows.py
+      - name: Notification diagnostics and click-blocker regression
+        run: |
+          python -m py_compile scripts/capture_notification_windows.py scripts/capture_zalo_popup_episodes.py scripts/capture_zalo_click_blocker.py
+          python scripts/capture_zalo_click_blocker.py --self-test
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
