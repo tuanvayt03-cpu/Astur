@@ -68,17 +68,17 @@ jobs:
       # Leave the user's installed window manager alone until the NCPC live
       # popup and mouse-input regression test proves the behavior.
       - name: Record NCPC test build provenance
-        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/zalo-notification-maximize-input'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/fix/zalo-notification-maximize-input' || github.ref == 'refs/heads/feat/native-titlebar-cross-monitor')
         shell: pwsh
         run: |
           "Commit: $env:GITHUB_SHA" | Set-Content target/release/NCPC_BUILD_INFO.txt
           "CI: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" | Add-Content target/release/NCPC_BUILD_INFO.txt
 
       - name: Upload NCPC Zalo popup test bundle
-        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/zalo-notification-maximize-input'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/fix/zalo-notification-maximize-input' || github.ref == 'refs/heads/feat/native-titlebar-cross-monitor')
         uses: actions/upload-artifact@v4
         with:
-          name: Astur-NCPC-Zalo-Preview-${{ github.sha }}
+          name: Astur-NCPC-NativeDrag-Preview-${{ github.sha }}
           path: |
             target/release/astur.exe
             target/release/astur-settings.exe

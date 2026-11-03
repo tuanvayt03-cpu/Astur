@@ -3,7 +3,10 @@ ASTUR / NCPC — ZALO POPUP & MOUSE INPUT TEST BUILD
 
 THIS IS A PORTABLE TEST BUILD, NOT AN INSTALLER OR A STABLE RELEASE.
 Built by GitHub Windows CI from the exact commit recorded in
-NCPC_BUILD_INFO.txt. It does not automatically replace Astur on the PC.
+NCPC_BUILD_INFO.txt. It also includes an experimental native title-bar
+cross-monitor transfer: drag a tiled app by its title bar to another monitor
+and release without holding Alt. Alt+left-drag remains fully supported.
+It does not automatically replace Astur on the PC.
 
 Safe test procedure on the PC that exhibits the problem:
   1. Save a copy of %USERPROFILE%\.astur (config and backup state) before testing.
