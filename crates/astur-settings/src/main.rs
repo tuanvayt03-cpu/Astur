@@ -1830,7 +1830,14 @@ impl App {
             toggle(
                 ui,
                 f,
-                ("Reliable focus switching", "Turns off Windows' focus-stealing guard for the whole system while Astur runs (put back when Astur exits). Off: a focus change may only flash the taskbar button.", "foreground_lock_disable"),
+                ("Protect active desktop from background tools", "New background windows stay out of tiling until you select them. Keeps Windows' focus-stealing guard enabled, preventing agent/CLI scan consoles from reshuffling the desktop.", "background_spawn_protection"),
+                &mut c.background_spawn_protection,
+                d.background_spawn_protection,
+            );
+            toggle(
+                ui,
+                f,
+                ("Reliable focus switching", "Turns off Windows' focus-stealing guard for the whole system while Astur runs (put back when Astur exits). Only applies when background desktop protection is off; otherwise Windows may flash the taskbar button instead of switching.", "foreground_lock_disable"),
                 &mut c.foreground_lock_disable,
                 d.foreground_lock_disable,
             );
