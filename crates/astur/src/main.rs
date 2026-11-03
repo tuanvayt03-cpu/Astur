@@ -25357,11 +25357,17 @@ mod tests {
         let popup_style = 0x1403_0000;
         let popup_exstyle = 0x0000_0008;
         assert!(!zalo_notification_shape(
-            popup_style, popup_exstyle, &notification, &monitor
+            popup_style,
+            popup_exstyle,
+            &notification,
+            &monitor
         ));
         assert!(zalo_topmost_borderless_surface(popup_style, popup_exstyle));
         assert!(zalo_notification_surface(
-            popup_style, popup_exstyle, &notification, &monitor
+            popup_style,
+            popup_exstyle,
+            &notification,
+            &monitor
         ));
         // The transient remained the same HWND after WS_VISIBLE was cleared.
         assert!(zalo_topmost_borderless_surface(0x0403_0000, popup_exstyle));
@@ -25382,16 +25388,22 @@ mod tests {
             bottom: 1080,
         };
         assert!(!zalo_notification_surface(
-            main_style, main_exstyle, &main_rect, &primary
+            main_style,
+            main_exstyle,
+            &main_rect,
+            &primary
         ));
         assert!(!zalo_topmost_borderless_surface(
-            popup_style, popup_exstyle | WS_EX_APPWINDOW.0
+            popup_style,
+            popup_exstyle | WS_EX_APPWINDOW.0
         ));
         assert!(!zalo_topmost_borderless_surface(
-            popup_style | WS_CAPTION.0, popup_exstyle
+            popup_style | WS_CAPTION.0,
+            popup_exstyle
         ));
         assert!(!zalo_topmost_borderless_surface(
-            popup_style | WS_THICKFRAME.0, popup_exstyle
+            popup_style | WS_THICKFRAME.0,
+            popup_exstyle
         ));
         assert!(!zalo_topmost_borderless_surface(popup_style, 0));
     }
