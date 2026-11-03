@@ -17,12 +17,14 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  UPGRADE_TAG: astur-vi-update-2.4.0.10
-  UPGRADE_VERSION: 2.4.0.10
+  UPGRADE_TAG: astur-vi-update-2.4.0.11
+  UPGRADE_VERSION: 2.4.0.11
 
 jobs:
   upgrade:
-    if: github.ref == 'refs/heads/feat/vi-full-update-popup-v2'
+    # Prevent preview installation/release from merely pushing a fix branch.
+    # Explicit dispatch is required after verified live notification acceptance.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/fix/zalo-notification-maximize-input'
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -42,8 +44,10 @@ jobs:
       - name: Test safe update contract
         run: python scripts/test_upgrade_packaging.py
 
-      - name: Check Win32 popup inspector syntax
-        run: python -m py_compile scripts/capture_notification_windows.py
+      - name: Check Win32 popup inspectors and Zalo hit-test classifier
+        run: |
+          python -m py_compile scripts/capture_notification_windows.py scripts/capture_zalo_popup_episodes.py
+          python scripts/capture_zalo_popup_episodes.py --self-test
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -68,7 +72,7 @@ jobs:
       - name: Upload bilingual Settings screenshots for review
         uses: actions/upload-artifact@v6
         with:
-          name: astur-settings-en-vi-2.4.0.10
+          name: astur-settings-en-vi-2.4.0.11
           path: dist/ui-renders/*.png
           if-no-files-found: error
 

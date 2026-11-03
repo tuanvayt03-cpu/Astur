@@ -1,4 +1,14 @@
-# Astur VI Update 2.4.0.10 — experimental in-place upgrade
+# Astur VI Update 2.4.0.11 — experimental in-place upgrade
+
+**Build source:** `fix/zalo-notification-maximize-input`. This release incorporates the additional fixes below on top of 2.4.0.10. It remains a preview: real Zalo notification and NCPC live tests have not yet been completed.
+
+## 2.4.0.11 changes
+- Zalo-specific, process-verified compact edge-popup fallback in Astur's window admission path. The goal is to let Zalo show its own notifications without Astur converting them into tiles or taking focus; normal chat windows stay manageable.
+- Astur slide/glide animation overlays pass mouse input through at every animation duration, including >250 ms. This removes Astur's intentional full-monitor click shield during long animations.
+- Honor Windows native maximization regardless of the optional `independent_fullscreen_popups` toggle (OFF by default). Native end-of-drag now reconciles maximize before a pending tile resize; queued placement also refuses already-maximized windows. Restored windows can return to tiling.
+- Extend the privacy-safe Zalo diagnostics with read-only `WindowFromPoint` tests for lower-screen input targets; no message text, screenshots, injected clicks or window-position modification.
+- Rust Windows CI: format, Clippy, tests and release build gate this updater; installer tests validate backup, custom install path, configuration preservation and uninstall on an isolated runner.
+
 
 **This installer updates the existing English Astur instead of installing a second copy.** It preserves the upstream installer GUID, remembers the existing installation folder and startup shortcut choice, and leaves normal window layout/configuration files in place.
 
