@@ -63,3 +63,27 @@ jobs:
       # panic=abort, which is what users actually run.
       - name: Build release
         run: cargo build --release --workspace
+
+      # This is an explicit non-installer test artifact, not a GitHub Release.
+      # Leave the user's installed window manager alone until the NCPC live
+      # popup and mouse-input regression test proves the behavior.
+      - name: Record NCPC test build provenance
+        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/zalo-notification-maximize-input'
+        shell: pwsh
+        run: |
+          "Commit: $env:GITHUB_SHA" | Set-Content target/release/NCPC_BUILD_INFO.txt
+          "CI: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" | Add-Content target/release/NCPC_BUILD_INFO.txt
+
+      - name: Upload NCPC Zalo popup test bundle
+        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/zalo-notification-maximize-input'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Astur-NCPC-Zalo-Preview-${{ github.sha }}
+          path: |
+            target/release/astur.exe
+            target/release/astur-settings.exe
+            target/release/NCPC_BUILD_INFO.txt
+            docs/vi/NCPC_TEST_BUILD_README.txt
+            docs/vi/NCPC_ZALO_HWND_EVIDENCE_2026-11-03.md
+          if-no-files-found: error
+          retention-days: 14
