@@ -6446,6 +6446,7 @@ fn conf_pairs(c: &Config) -> (Pairs, Pairs) {
         ("ipc_allow_launch", b(c.ipc_allow_launch)),
         ("yasb_enabled", b(c.yasb_enabled)),
         ("yasb_port", c.yasb_port.to_string()),
+        ("background_spawn_protection", b(c.background_spawn_protection)),
         ("foreground_lock_disable", b(c.foreground_lock_disable)),
         ("async_window_pos", b(c.async_window_pos)),
         ("persist_state", b(c.persist_state)),

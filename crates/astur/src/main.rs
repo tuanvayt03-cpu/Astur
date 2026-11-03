@@ -2777,6 +2777,10 @@ static PRESSED: [AtomicBool; 256] = [const { AtomicBool::new(false) }; 256];
 static MANAGED: Mutex<Vec<isize>> = Mutex::new(Vec::new());
 // Opt-in native fullscreen/media-viewer protection; read by WinEvent callbacks.
 static INDEPENDENT_FULLSCREEN_POPUPS: AtomicBool = AtomicBool::new(false);
+// New background windows stay outside Astur until Windows actually foregrounds
+// them. Prevents short-lived agent/tool consoles from taking a tile/reflowing
+// the active desktop merely because they became visible.
+static BACKGROUND_SPAWN_PROTECTION: AtomicBool = AtomicBool::new(true);
 // Windows excluded while maximized/fullscreen: recheck on restore or minimize.
 static INDEPENDENT_HWND: Mutex<Option<HashSet<isize>>> = Mutex::new(None);
 // O(1) window -> (monitor, workspace) lookup, rebuilt by sync_managed once per
@@ -2815,6 +2819,7 @@ fn apply_hook_config(cfg: &Config) {
     }
     FOLLOW_MOUSE.store(cfg.focus_follows_mouse, Ordering::Relaxed);
     INDEPENDENT_FULLSCREEN_POPUPS.store(cfg.independent_fullscreen_popups, Ordering::Release);
+    BACKGROUND_SPAWN_PROTECTION.store(cfg.background_spawn_protection, Ordering::Release);
     // Logged at startup and on each reload: which placement mode ran is the
     // first question for a misplaced-window report.
     ASYNC_WINDOW_POS.store(cfg.async_window_pos, Ordering::Relaxed);
@@ -19154,8 +19159,20 @@ fn ignore_unmanaged_toast_event(event: u32, managed: bool, toast: bool) -> bool 
 /// app opened mid-retile, for good (4 windows shown together: 1 tiled, 3 never
 /// managed; measured with the hidden-desktop bench). Only a window we already
 /// track can be the echo of our own show, so only those are skipped.
-fn show_needs_add(suppressed: bool, tracked: bool) -> bool {
-    !(suppressed && tracked)
+fn show_needs_add(
+    suppressed: bool,
+    tracked: bool,
+    protect_background: bool,
+    is_foreground: bool,
+) -> bool {
+    if suppressed && tracked {
+        return false;
+    }
+    // A newly shown background window has no business changing the user's
+    // current layout. Leave it entirely to Windows until it is selected and
+    // produces a real foreground event. Tracked windows still follow the old
+    // show/follow rules, and an already-foreground new window is adopted now.
+    !(protect_background && !tracked && !is_foreground)
 }
 
 /// A Cmd::BarRefresh is queued and not yet consumed (BAR-10). Set by the
@@ -19413,10 +19430,24 @@ unsafe extern "system" fn win_event_proc(
                 ev_count(EVC_SHOW_STYLE);
             } else {
                 let managed = is_managed(h);
-                if show_needs_add(SUPPRESS.load(Ordering::Relaxed), managed) {
+                let should_add = show_needs_add(
+                    SUPPRESS.load(Ordering::Relaxed),
+                    managed,
+                    BACKGROUND_SPAWN_PROTECTION.load(Ordering::Acquire),
+                    GetForegroundWindow() == hwnd,
+                );
+                if should_add {
                     push_cmd(Cmd::Add(h, event));
+                } else if log_on(LOG_DEBUG) {
+                    log_debug!(
+                        "background show deferred {h:#x} class='{}'",
+                        window_class(hwnd)
+                    );
                 }
-                if !managed {
+                // A deferred background SHOW must not sneak back through the
+                // UNCLOAKED retry path. If the user later selects the window,
+                // FOREGROUND performs the normal Add.
+                if !managed && should_add {
                     uncloak_retry_mark(
                         &mut UNCLOAK_RETRY.lock().unwrap()[..],
                         h,
@@ -19473,7 +19504,12 @@ unsafe extern "system" fn win_event_proc(
                 return;
             }
             push_cmd(Cmd::Focused(h));
-            if show_needs_add(SUPPRESS.load(Ordering::Relaxed), is_managed(h)) {
+            if show_needs_add(
+                SUPPRESS.load(Ordering::Relaxed),
+                is_managed(h),
+                BACKGROUND_SPAWN_PROTECTION.load(Ordering::Acquire),
+                GetForegroundWindow() == hwnd,
+            ) {
                 push_cmd(Cmd::Add(h, event));
             }
         }
@@ -24998,8 +25034,12 @@ fn main() {
         // This is SYSTEM-WIDE, affecting every application, so remember the old
         // value and put it back on a graceful exit (review S-03) — leaving the
         // machine in a changed state after quitting is not ours to do.
-        if cfg.foreground_lock_disable {
+        if cfg.foreground_lock_disable && !cfg.background_spawn_protection {
             disable_foreground_lock();
+        } else if cfg.foreground_lock_disable && cfg.background_spawn_protection {
+            log_info!(
+                "foreground_lock_disable ignored: background_spawn_protection keeps Windows focus-stealing protection enabled"
+            );
         }
 
         // React to windows opening/closing/focusing for tiling. Out-of-context
@@ -25180,15 +25220,20 @@ mod tests {
     }
 
     #[test]
-    fn show_event_adds_untracked_windows_even_mid_retile() {
-        // An app opening a window while the manager holds SUPPRESS for a
-        // retile must still be adopted (the 1-of-4 burst bug).
-        assert!(show_needs_add(true, false));
-        assert!(show_needs_add(false, false));
+    fn background_show_waits_for_foreground_without_dropping_real_windows() {
+        // A background tool/window that merely becomes visible must not take a
+        // tile. Its later FOREGROUND event adopts it normally.
+        assert!(!show_needs_add(false, false, true, false));
+        assert!(show_needs_add(false, false, true, true));
+        // Turning the protection off restores the original eager SHOW policy.
+        assert!(show_needs_add(false, false, false, false));
+        // SUPPRESS only hides echoes for windows Astur already tracks. A new
+        // foreground app shown during a retile must still be adopted.
+        assert!(show_needs_add(true, false, true, true));
         // Tracked + not ours: Add runs the follow-to-workspace logic.
-        assert!(show_needs_add(false, true));
+        assert!(show_needs_add(false, true, true, false));
         // Tracked + SUPPRESS: echo of our own show, skip.
-        assert!(!show_needs_add(true, true));
+        assert!(!show_needs_add(true, true, true, true));
     }
 
     // ---- drag drops (batch 17, INPUT-9 / INPUT-5) -----------------------------
