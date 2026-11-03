@@ -810,6 +810,38 @@ const DRAG_FRAME_TIME: std::time::Duration = std::time::Duration::from_micros(8_
 const DRAG_RETRY_TIME: std::time::Duration = std::time::Duration::from_millis(100);
 static RETILE_AFTER_DRAG: AtomicBool = AtomicBool::new(false);
 static NATIVE_DRAG: AtomicIsize = AtomicIsize::new(0);
+/// Captured only at native MOVESIZESTART: when the user drags the actual
+/// caption onto another monitor, reuse Alt-drag's proven monitor transfer.
+/// No hook is installed and native clicks are never suppressed.
+static NATIVE_DRAG_MONITOR: AtomicIsize = AtomicIsize::new(0);
+static NATIVE_DRAG_CAPTION: AtomicBool = AtomicBool::new(false);
+
+/// Be conservative: exclude side/top resize grips. Only the ordinary
+/// caption strip qualifies for modifier-free cross-monitor transfers.
+fn native_caption_drag_origin(pt: POINT, rect: RECT, style: u32) -> bool {
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    width > 80
+        && height > 48
+        && style & WS_CAPTION.0 == WS_CAPTION.0
+        && pt.x >= rect.left + 16
+        && pt.x < rect.right - 16
+        && pt.y >= rect.top + 8
+        && pt.y < rect.top + 96.min(height / 3)
+}
+
+fn native_caption_transfer(
+    started_caption: bool,
+    started_monitor: isize,
+    released_monitor: isize,
+    maximized: bool,
+) -> bool {
+    started_caption
+        && !maximized
+        && started_monitor != 0
+        && released_monitor != 0
+        && started_monitor != released_monitor
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct DragFrame {
@@ -19289,7 +19321,13 @@ unsafe extern "system" fn win_event_proc(
         EVENT_OBJECT_HIDE | EVENT_OBJECT_DESTROY | EVENT_SYSTEM_MINIMIZESTART
     ) {
         // Some apps disappear without MOVESIZEEND. Do not defer layouts forever.
-        let _ = NATIVE_DRAG.compare_exchange(h, 0, Ordering::Relaxed, Ordering::Relaxed);
+        if NATIVE_DRAG
+            .compare_exchange(h, 0, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            NATIVE_DRAG_MONITOR.store(0, Ordering::Relaxed);
+            NATIVE_DRAG_CAPTION.store(false, Ordering::Relaxed);
+        }
     }
     // SHOW prefilter (EVENTS-1): a child, tool or no-activate window can never
     // be adopted (app_surface_reject refuses the same bits), and every menu,
@@ -19486,21 +19524,54 @@ unsafe extern "system" fn win_event_proc(
             // effect; nothing relied on that.
             push_cmd(Cmd::RetileFor(h));
         }
-        // User finished a native (non-Alt) move/resize. Re-integrate the window
-        // into the tiling: master keeps its new width as the ratio, everything
-        // else snaps back so windows never overlap.
+        // Native title-bar moves need no modifier, while resizes still use
+        // the original tile-ratio path. A user may pull a regular caption to
+        // another display; remember their origin without intercepting clicks.
         EVENT_SYSTEM_MOVESIZESTART => {
             NATIVE_DRAG.store(h, Ordering::Relaxed);
+            NATIVE_DRAG_MONITOR.store(
+                MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST).0 as isize,
+                Ordering::Relaxed,
+            );
+            let mut pt = POINT::default();
+            let mut rect = RECT::default();
+            let began_on_caption = GetCursorPos(&mut pt).is_ok()
+                && GetWindowRect(hwnd, &mut rect).is_ok()
+                && native_caption_drag_origin(pt, rect, GetWindowLongW(hwnd, GWL_STYLE) as u32);
+            NATIVE_DRAG_CAPTION.store(began_on_caption, Ordering::Relaxed);
             cancel_glide();
         }
         EVENT_SYSTEM_MOVESIZEEND => {
-            NATIVE_DRAG.store(0, Ordering::Relaxed);
+            let source = NATIVE_DRAG.swap(0, Ordering::Relaxed);
+            let start_monitor = NATIVE_DRAG_MONITOR.swap(0, Ordering::Relaxed);
+            let started_caption = NATIVE_DRAG_CAPTION.swap(false, Ordering::Relaxed);
             if is_managed(h) || independent_seen(h) {
                 push_cmd(Cmd::RefreshIndependence(h));
             }
-            // No preview rect here — the window is already where the user put it;
-            // the manager reads the live rect (None).
-            push_cmd(Cmd::DragResized(hwnd.0 as isize, None));
+            let mut pt = POINT::default();
+            let mut rect = RECT::default();
+            if source == h
+                && is_managed(h)
+                && GetCursorPos(&mut pt).is_ok()
+                && GetWindowRect(hwnd, &mut rect).is_ok()
+                && native_caption_transfer(
+                    started_caption,
+                    start_monitor,
+                    MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST).0 as isize,
+                    IsZoomed(hwnd).as_bool(),
+                )
+            {
+                // Reuse the exact Alt-drag monitor ownership/layout path. It
+                // handles floats, scrolling columns, focus and per-monitor
+                // active workspaces, and never leaves a moved tile registered
+                // with the old display.
+                push_cmd(Cmd::DragMoved(h, pt.x, pt.y, rect));
+            } else {
+                // Same-screen native resize and Windows Snap maximize retain
+                // their existing semantics; never turn an edge resize into
+                // a cross-monitor move.
+                push_cmd(Cmd::DragResized(h, None));
+            }
         }
         _ => {}
     }
@@ -25337,6 +25408,48 @@ mod tests {
             &screen
         ));
         assert!(!zalo_notification_shape(WS_POPUP.0, 0, &screen, &screen));
+    }
+
+    #[test]
+    fn native_titlebar_drag_between_displays_requires_real_caption_move() {
+        let rect = RECT {
+            left: 0,
+            top: 0,
+            right: 960,
+            bottom: 1040,
+        };
+        let style = WS_CAPTION.0 | WS_THICKFRAME.0;
+        assert!(native_caption_drag_origin(
+            POINT { x: 320, y: 36 },
+            rect,
+            style
+        ));
+        assert!(!native_caption_drag_origin(
+            POINT { x: 320, y: 2 },
+            rect,
+            style
+        )); // resize grip, not caption
+        assert!(!native_caption_drag_origin(
+            POINT { x: 2, y: 36 },
+            rect,
+            style
+        )); // left resize grip
+        assert!(!native_caption_drag_origin(
+            POINT { x: 320, y: 350 },
+            rect,
+            style
+        )); // application content
+        assert!(!native_caption_drag_origin(
+            POINT { x: 320, y: 36 },
+            rect,
+            WS_POPUP.0
+        )); // borderless notification
+        assert!(native_caption_transfer(true, 11, 22, false));
+        assert!(native_caption_transfer(true, 22, 11, false));
+        assert!(!native_caption_transfer(false, 11, 22, false));
+        assert!(!native_caption_transfer(true, 11, 11, false));
+        assert!(!native_caption_transfer(true, 11, 22, true));
+        assert!(!native_caption_transfer(true, 0, 22, false));
     }
 
     #[test]

@@ -207,7 +207,8 @@ shortcut follow the key you picked.
 
 | Shortcut | Action |
 |---|---|
-| `Alt` + left-drag | Move window |
+| `Alt` + left-drag | Move window from any point, including between monitors |
+| Drag an ordinary window title bar across monitors | Transfer the tiled window to the monitor where released (no modifier; border resize and Windows maximize unchanged) |
 | `Alt` + right-drag | Resize from nearest corner |
 | `Alt` + `Space` | **App launcher + file search** *(Astur)* |
 | `Alt` + `Shift` + `Space` | **Power / system menu** *(Astur)* |
