@@ -2,7 +2,7 @@ name: Astur VI in-place update (preview)
 
 on:
   push:
-    branches: ["feat/vi-full-update-popup-v2"]
+    branches: ["feat/vi-full-update-popup-v2", "release/astur-vi-update-2.4.0.12"]
     paths:
       - ".github/workflows/upgrade-release.yml"
       - "packaging/astur-vi-update.iss"
@@ -17,14 +17,14 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  UPGRADE_TAG: astur-vi-update-2.4.0.11
-  UPGRADE_VERSION: 2.4.0.11
+  UPGRADE_TAG: astur-vi-update-2.4.0.12
+  UPGRADE_VERSION: 2.4.0.12
 
 jobs:
   upgrade:
-    # Prevent preview installation/release from merely pushing a fix branch.
-    # Explicit dispatch is required after verified live notification acceptance.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/fix/zalo-notification-maximize-input'
+    # Dedicated one-shot update branch, scoped to an explicit user-requested
+    # release. All feature/PR branches continue to run CI only.
+    if: github.ref == 'refs/heads/release/astur-vi-update-2.4.0.12' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -72,7 +72,7 @@ jobs:
       - name: Upload bilingual Settings screenshots for review
         uses: actions/upload-artifact@v6
         with:
-          name: astur-settings-en-vi-2.4.0.11
+          name: astur-settings-en-vi-2.4.0.12
           path: dist/ui-renders/*.png
           if-no-files-found: error
 
@@ -151,8 +151,15 @@ jobs:
           $oldBinary = Join-Path $backup 'Astur.exe'
           if (-not (Test-Path $oldBinary)) { throw 'Original binary rollback backup missing' }
           if ((Get-FileHash $oldBinary -Algorithm SHA256).Hash -ne $previousHash) { throw 'Rollback binary hash mismatch' }
-          foreach ($f in @('astur-settings.exe','astur.conf','navbar.conf')) {
-            if (-not (Test-Path (Join-Path $backup $f))) { throw "Missing rollback backup $f" }
+          $priorBackup = Join-Path $env:LOCALAPPDATA 'Astur\UpgradeBackup\before-vi-update-2.4.0.12'
+          $priorBinary = Join-Path $priorBackup 'Astur.exe'
+          if (-not (Test-Path $priorBinary)) { throw 'Immediate pre-2.4.0.12 rollback binary missing' }
+          if ((Get-FileHash $priorBinary -Algorithm SHA256).Hash -ne $previousHash) { throw 'Immediate rollback binary hash mismatch' }
+          foreach ($backupDir in @($backup, $priorBackup)) {
+            foreach ($f in @('astur-settings.exe','astur.conf','navbar.conf')) {
+              if (-not (Test-Path (Join-Path $backupDir $f))) { throw "Missing rollback backup $backupDir / $f" }
+            }
+            if ((Get-FileHash (Join-Path $backupDir 'astur.conf') -Algorithm SHA256).Hash -ne $cfgHash) { throw "Rollback config hash mismatch: $backupDir" }
           }
           $uninstaller = Join-Path $target 'unins000.exe'
           if (-not (Test-Path $uninstaller)) { throw 'Upgraded uninstall entry missing' }

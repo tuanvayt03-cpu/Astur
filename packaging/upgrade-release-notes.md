@@ -1,6 +1,21 @@
-# Astur VI Update 2.4.0.11 — experimental in-place upgrade
+# Astur VI Update 2.4.0.12 — experimental in-place upgrade
 
-**Build source:** `fix/zalo-notification-maximize-input`. This release incorporates the additional fixes below on top of 2.4.0.10. It remains a preview: real Zalo notification and NCPC live tests have not yet been completed.
+**Build source:** `release/astur-vi-update-2.4.0.12`, based on `950dbd7`, includes the Zalo HWND classifier and native title-bar monitor transfer.
+
+## 2.4.0.12 changes
+- Native title-bar drag of an Astur-managed tiled window across physical monitors now rehomes it to the target monitor's active workspace on release, without requiring Left Alt. Existing Alt+drag, keyboard monitor move, tiling order, native maximize and floating behavior remain available.
+- The Zalo-specific ignore rule now includes TOPMOST borderless windows without APPWINDOW/caption/frame, including the observed 960×1040 transient Zalo HWND on NCPC; normal Zalo chat remains tileable. Only Astur management is bypassed: no Zalo window visibility, z-order or input flags are changed.
+- Diagnostic mouse hook guard and Win32 HWND sampling from intervening fixes remain included.
+- In addition to the original first-upgrade backup, this installer saves the **immediately pre-2.4.0.12** binaries and `astur.conf`/`navbar.conf` under `%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.12`. Neither backup is overwritten by a reinstall.
+- Windows CI enforces formatting, static analysis, unit tests, bilingual Settings renders, and an isolated original-AppId-to-updater installation/backup/uninstall smoke test.
+
+**PREVIEW / acceptance limitation:** NCPC multi-monitor title-bar movement and real Zalo input-blocking have not yet been verified after this build on the affected desktop. Do not classify this as a proven live fix. The oversized Zalo popup itself may intercept mouse events even when Astur ignores it. Quit Astur before comparing the app's native behavior. This is not an official upstream Astur release.
+
+---
+
+## Previous 2.4.0.11 changes
+
+**Historical note for 2.4.0.11:** Built from `fix/zalo-notification-maximize-input`, with the earlier popup and maximize fixes. That version did not resolve the live NCPC Zalo issue.
 
 ## 2.4.0.11 changes
 - Zalo-specific, process-verified compact edge-popup fallback in Astur's window admission path. The goal is to let Zalo show its own notifications without Astur converting them into tiles or taking focus; normal chat windows stay manageable.

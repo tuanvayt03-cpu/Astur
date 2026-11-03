@@ -44,4 +44,10 @@ workflow_tag=re.search(r"(?m)^  UPGRADE_TAG: (.+)$",workflow)
 assert workflow_version and workflow_version.group(1)==version, "Workflow/installer version mismatch"
 assert workflow_tag and workflow_tag.group(1)==f"astur-vi-update-{version}", "Release tag/version mismatch"
 assert "before-vi-update-2.4.0.1" in update and "before-vi-update-2.4.0.1" in workflow, "Keep the first original backup across upgrades"
-print("Astur VI in-place upgrade identity, version, backup, rollback, smoke contract: PASS")
+assert f"before-vi-update-{version}" in update and f"before-vi-update-{version}" in workflow, "Capture the immediate pre-update installation"
+assert "not BackupCurrent(InstallDir, UserDir, OriginalBackupDir)" in update
+assert "not BackupCurrent(InstallDir, UserDir, PriorBackupDir)" in update
+assert "Immediate rollback binary hash mismatch" in workflow
+assert "Rollback config hash mismatch" in workflow
+assert "release/astur-vi-update-2.4.0.12" in workflow, "Restrict release to dedicated branch"
+print("Astur VI in-place upgrade identity, version, dual-backup, rollback, smoke contract: PASS")

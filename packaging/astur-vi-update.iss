@@ -1,8 +1,8 @@
 ; Astur VI in-place update. SAME AppId as upstream to upgrade existing Astur,
 ; not create a second product. Backs up current binaries and user config first.
-; Version 2.4.0.11 is a pre-release, not the official upstream Astur release.
+; Version 2.4.0.12 is a pre-release, not the official upstream Astur release.
 #define AppName "Astur"
-#define AppVersion "2.4.0.11"
+#define AppVersion "2.4.0.12"
 #define AppExe "Astur.exe"
 
 [Setup]
@@ -71,17 +71,27 @@ begin
   Result := FileCopy(Src, Dest, False);
 end;
 
+function BackupCurrent(const InstallDir, UserDir, BackupDir: String): Boolean;
+begin
+  Result :=
+    BackupExisting(AddBackslash(InstallDir) + 'Astur.exe', BackupDir, 'Astur.exe') and
+    BackupExisting(AddBackslash(InstallDir) + 'astur-settings.exe', BackupDir, 'astur-settings.exe') and
+    BackupExisting(AddBackslash(UserDir) + 'astur.conf', BackupDir, 'astur.conf') and
+    BackupExisting(AddBackslash(UserDir) + 'navbar.conf', BackupDir, 'navbar.conf');
+end;
+
+// Retain the first-ever upgrade backup AND capture the installation that is
+// about to be replaced. Never overwrite either snapshot on rerun.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var BackupDir, UserDir, InstallDir: String;
+var OriginalBackupDir, PriorBackupDir, UserDir, InstallDir: String;
 begin
   Result := '';
-  BackupDir := ExpandConstant('{localappdata}\Astur\UpgradeBackup\before-vi-update-2.4.0.1');
+  OriginalBackupDir := ExpandConstant('{localappdata}\Astur\UpgradeBackup\before-vi-update-2.4.0.1');
+  PriorBackupDir := ExpandConstant('{localappdata}\Astur\UpgradeBackup\before-vi-update-2.4.0.12');
   InstallDir := ExpandConstant('{app}');
   UserDir := ExpandConstant('{%USERPROFILE}\.astur');
-  if not BackupExisting(AddBackslash(InstallDir) + 'Astur.exe', BackupDir, 'Astur.exe') or
-     not BackupExisting(AddBackslash(InstallDir) + 'astur-settings.exe', BackupDir, 'astur-settings.exe') or
-     not BackupExisting(AddBackslash(UserDir) + 'astur.conf', BackupDir, 'astur.conf') or
-     not BackupExisting(AddBackslash(UserDir) + 'navbar.conf', BackupDir, 'navbar.conf') then
+  if not BackupCurrent(InstallDir, UserDir, OriginalBackupDir) or
+     not BackupCurrent(InstallDir, UserDir, PriorBackupDir) then
   begin
     Result := 'Cannot back up the existing Astur installation. Update cancelled without overwriting it.';
   end;

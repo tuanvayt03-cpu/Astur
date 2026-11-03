@@ -1,4 +1,4 @@
-ASTUR VI UPDATE 2.4.0.10 (PREVIEW)
+ASTUR VI UPDATE 2.4.0.12 (PREVIEW)
 
 This installer UPDATES the existing Astur English installation IN PLACE.
 It is an experimental fork, NOT an official stable upstream release.
@@ -14,12 +14,22 @@ ROLLBACK
 The installer backs up the existing Astur.exe, astur-settings.exe,
 astur.conf and navbar.conf (when present) to:
 %LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.1
-The first backup is preserved if you reinstall this update.
-To roll back reliably, close Astur and run your original upstream Astur
-installer again. Do not run the original and fork simultaneously.
-The backup is available if you need your previous binary/settings.
+A SECOND backup of the version currently installed is saved to:
+%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.12
+Both snapshots are kept on a repeat update. Do not remove either backup.
+To roll back, first quit Astur and restore the saved binaries/configuration
+from the second backup or reinstall the previously used installer.
+Do not run the original and fork simultaneously.
 
-WHAT IS NEW
+WHAT IS NEW IN 2.4.0.12
+- Native title-bar drag can move a managed tiled window to another monitor,
+  without holding Left Alt. Alt+drag and existing keyboard moves remain.
+- A verified Zalo.exe TOPMOST, borderless, no-APPWINDOW notification host
+  is ignored by Astur's tiling/adoption/focus rules. The normal chat window
+  remains tileable. No Zalo window style or mouse capture is changed.
+- Native maximize and mouse-hook guard changes from earlier 2.4.0.11.
+WARNING: Actual NCPC/Zalo live behavior is not yet verified. If the popup
+still blocks input, quit Astur and compare behavior with Astur not running.
 Optional Windows & rules checkbox keeps native maximize/F11 windows and
 borderless photo/video popups outside Astur's tile/tab layout. The rest of
 the tiled windows keep normal per-window Windows focus and z-order.
