@@ -5160,10 +5160,23 @@ fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
         || shallow_edge_banner
 }
 
-/// Zalo can supply ordinary Chromium APPWINDOW/chrome bits for a transient
-/// popup. Require BOTH the originating executable and a compact screen-edge
-/// shape: the real Zalo chat window must remain eligible for tiling, including
-/// when maximized or resized.
+/// The 2026-11-03 NCPC Win32 trace captured a second Zalo Chrome_WidgetWin_1
+/// HWND (style=0x14030000, exstyle=0x00000008, rect=1920,75..2880,1115).
+/// It was TOPMOST without APPWINDOW/caption/frame, occupied an entire half-tile
+/// and briefly captured the mouse. Geometry-only toast filters missed it.
+///
+/// A borderless topmost Zalo presentation surface must never become an Astur
+/// tile or focus target, regardless of how large its HWND grows. Exact Zalo
+/// process identity is checked by is_zalo_notification_overlay before applying
+/// this shape policy. Normal Zalo chat has CAPTION/THICKFRAME and APPWINDOW.
+fn zalo_topmost_borderless_surface(style: u32, exstyle: u32) -> bool {
+    exstyle & WS_EX_TOPMOST.0 != 0
+        && exstyle & WS_EX_APPWINDOW.0 == 0
+        && style & (WS_CHILD.0 | WS_CAPTION.0 | WS_THICKFRAME.0 | WS_SYSMENU.0) == 0
+}
+
+/// Older compact, edge-anchored Zalo toasts may advertise APPWINDOW or chrome.
+/// Keep this narrow fallback so the normal chat window is still tileable.
 fn zalo_notification_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT) -> bool {
     let w = i64::from(rect.right) - i64::from(rect.left);
     let h = i64::from(rect.bottom) - i64::from(rect.top);
@@ -5187,12 +5200,17 @@ fn zalo_notification_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
     (at_top || at_bottom) && popup_like
 }
 
+fn zalo_notification_surface(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT) -> bool {
+    zalo_topmost_borderless_surface(style, exstyle)
+        || zalo_notification_shape(style, exstyle, rect, monitor)
+}
+
 fn is_zalo_executable(path: &str) -> bool {
     let name = path.rsplit(['\\', '/']).next().unwrap_or(path);
     name.eq_ignore_ascii_case("zalo.exe") || name.eq_ignore_ascii_case("zalopc.exe")
 }
 
-/// Slower process identity probe only runs after the geometry/style filter.
+/// Process identity probe only runs after the narrow shape/style filter.
 /// Never changes Zalo's window flags, z-order, focus or click behavior.
 unsafe fn is_zalo_notification_overlay(hwnd: HWND) -> bool {
     let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
@@ -5207,7 +5225,7 @@ unsafe fn is_zalo_notification_overlay(hwnd: HWND) -> bool {
         ..Default::default()
     };
     if !GetMonitorInfoW(hmon, &mut info).as_bool()
-        || !zalo_notification_shape(style, exstyle, &rect, &info.rcMonitor)
+        || !zalo_notification_surface(style, exstyle, &rect, &info.rcMonitor)
     {
         return false;
     }
@@ -25319,6 +25337,63 @@ mod tests {
             &screen
         ));
         assert!(!zalo_notification_shape(WS_POPUP.0, 0, &screen, &screen));
+    }
+
+    #[test]
+    fn ncpc_zalo_topmost_half_screen_notification_is_never_tiled() {
+        // Exact HWND metadata from astur_input_20261103_114156.jsonl.
+        let monitor = RECT {
+            left: 1920,
+            top: 75,
+            right: 3840,
+            bottom: 1155,
+        };
+        let notification = RECT {
+            left: 1920,
+            top: 75,
+            right: 2880,
+            bottom: 1115,
+        };
+        let popup_style = 0x1403_0000;
+        let popup_exstyle = 0x0000_0008;
+        assert!(!zalo_notification_shape(
+            popup_style, popup_exstyle, &notification, &monitor
+        ));
+        assert!(zalo_topmost_borderless_surface(popup_style, popup_exstyle));
+        assert!(zalo_notification_surface(
+            popup_style, popup_exstyle, &notification, &monitor
+        ));
+        // The transient remained the same HWND after WS_VISIBLE was cleared.
+        assert!(zalo_topmost_borderless_surface(0x0403_0000, popup_exstyle));
+
+        // Zalo's real chat window was independently visible in BOTH traces.
+        let main_style = 0x14c7_0000;
+        let main_exstyle = 0x0000_0100;
+        let main_rect = RECT {
+            left: 0,
+            top: 0,
+            right: 960,
+            bottom: 1040,
+        };
+        let primary = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        assert!(!zalo_notification_surface(
+            main_style, main_exstyle, &main_rect, &primary
+        ));
+        assert!(!zalo_topmost_borderless_surface(
+            popup_style, popup_exstyle | WS_EX_APPWINDOW.0
+        ));
+        assert!(!zalo_topmost_borderless_surface(
+            popup_style | WS_CAPTION.0, popup_exstyle
+        ));
+        assert!(!zalo_topmost_borderless_surface(
+            popup_style | WS_THICKFRAME.0, popup_exstyle
+        ));
+        assert!(!zalo_topmost_borderless_surface(popup_style, 0));
     }
 
     #[test]
