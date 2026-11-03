@@ -2781,6 +2781,32 @@ static INDEPENDENT_FULLSCREEN_POPUPS: AtomicBool = AtomicBool::new(false);
 // them. Prevents short-lived agent/tool consoles from taking a tile/reflowing
 // the active desktop merely because they became visible.
 static BACKGROUND_SPAWN_PROTECTION: AtomicBool = AtomicBool::new(true);
+
+#[inline]
+fn foreground_lock_should_disable(protect_background: bool, requested: bool) -> bool {
+    requested && !protect_background
+}
+
+fn sync_foreground_lock(cfg: &Config) {
+    // Keep the system-wide SPI setting in sync on BOTH startup and live config
+    // reload. Otherwise enabling protection after Astur started in the old
+    // aggressive mode would leave Windows' guard disabled until restart.
+    unsafe {
+        if foreground_lock_should_disable(
+            cfg.background_spawn_protection,
+            cfg.foreground_lock_disable,
+        ) {
+            disable_foreground_lock();
+        } else {
+            restore_foreground_lock();
+            if cfg.foreground_lock_disable && cfg.background_spawn_protection {
+                log_info!(
+                    "foreground_lock_disable ignored: background_spawn_protection keeps Windows focus-stealing protection enabled"
+                );
+            }
+        }
+    }
+}
 // Windows excluded while maximized/fullscreen: recheck on restore or minimize.
 static INDEPENDENT_HWND: Mutex<Option<HashSet<isize>>> = Mutex::new(None);
 // O(1) window -> (monitor, workspace) lookup, rebuilt by sync_managed once per
@@ -2820,6 +2846,7 @@ fn apply_hook_config(cfg: &Config) {
     FOLLOW_MOUSE.store(cfg.focus_follows_mouse, Ordering::Relaxed);
     INDEPENDENT_FULLSCREEN_POPUPS.store(cfg.independent_fullscreen_popups, Ordering::Release);
     BACKGROUND_SPAWN_PROTECTION.store(cfg.background_spawn_protection, Ordering::Release);
+    sync_foreground_lock(cfg);
     // Logged at startup and on each reload: which placement mode ran is the
     // first question for a misplaced-window report.
     ASYNC_WINDOW_POS.store(cfg.async_window_pos, Ordering::Relaxed);
@@ -25030,17 +25057,8 @@ fn main() {
         // hidden on another workspace when Astur exits.
         let _ = SetConsoleCtrlHandler(Some(console_handler), BOOL(1));
 
-        // Reduce the foreground lock so the manager can focus windows reliably.
-        // This is SYSTEM-WIDE, affecting every application, so remember the old
-        // value and put it back on a graceful exit (review S-03) — leaving the
-        // machine in a changed state after quitting is not ours to do.
-        if cfg.foreground_lock_disable && !cfg.background_spawn_protection {
-            disable_foreground_lock();
-        } else if cfg.foreground_lock_disable && cfg.background_spawn_protection {
-            log_info!(
-                "foreground_lock_disable ignored: background_spawn_protection keeps Windows focus-stealing protection enabled"
-            );
-        }
+        // Foreground-lock policy was already synchronized by apply_hook_config
+        // above, and live reloads use that same path.
 
         // React to windows opening/closing/focusing for tiling. Out-of-context
         // callbacks run on this thread's message loop; own-process events
@@ -25234,6 +25252,14 @@ mod tests {
         assert!(show_needs_add(false, true, true, false));
         // Tracked + SUPPRESS: echo of our own show, skip.
         assert!(!show_needs_add(true, true, true, true));
+    }
+
+    #[test]
+    fn background_protection_owns_the_foreground_lock_policy() {
+        assert!(!foreground_lock_should_disable(true, true));
+        assert!(!foreground_lock_should_disable(true, false));
+        assert!(!foreground_lock_should_disable(false, false));
+        assert!(foreground_lock_should_disable(false, true));
     }
 
     // ---- drag drops (batch 17, INPUT-9 / INPUT-5) -----------------------------
