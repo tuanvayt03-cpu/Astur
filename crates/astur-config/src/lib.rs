@@ -137,9 +137,14 @@ pub struct Config {
     /// makes Astur a convenient parent process for something else already
     /// running as the user.
     pub ipc_allow_launch: bool,
+    /// Keep newly shown background windows out of tiling until Windows actually
+    /// foregrounds them. Also keeps Windows' normal foreground-stealing guard
+    /// enabled, so agent/tool consoles can wait on the taskbar instead of
+    /// interrupting the active app.
+    pub background_spawn_protection: bool,
     /// Disable Windows' foreground-lock timeout so focus changes are reliable.
     /// This is a GLOBAL, system-wide setting; Astur restores the previous value
-    /// on a graceful exit.
+    /// on a graceful exit. Ignored while background_spawn_protection is enabled.
     pub foreground_lock_disable: bool,
     /// Place app windows with posted (SWP_ASYNCWINDOWPOS) SetWindowPos calls,
     /// so a retile waits for the slowest app rather than for every app in
@@ -1281,7 +1286,8 @@ impl Config {
             yasb_enabled: false,
             yasb_port: 6123,
             ipc_allow_launch: false,
-            foreground_lock_disable: true,
+            background_spawn_protection: true,
+            foreground_lock_disable: false,
             async_window_pos: true,
             persist_state: true,
             log_level: "error".to_string(),
@@ -1837,12 +1843,16 @@ ipc_allow_launch = false
 yasb_enabled = false
 yasb_port = 6123
 
-# Windows normally refuses to let a background app steal the foreground. Astur
-# disables that timeout so focus changes land reliably. It is a SYSTEM-WIDE
-# setting affecting every application, not just Astur; the previous value is put
-# back when Astur exits gracefully. Set false to leave the system setting alone
-# (focus may occasionally flash in the taskbar instead of switching).
-foreground_lock_disable = true
+# Protect the current desktop from windows spawned by background tools/agents.
+# A newly SHOWN window that is not the Windows foreground stays unmanaged until
+# you actually select it (taskbar / Alt+Tab / click). This prevents a short-lived
+# PowerShell/CMD/tool window from taking a tile and reflowing the whole layout.
+# It also preserves Windows' foreground-stealing guard while enabled.
+background_spawn_protection = true
+# Expert escape hatch: disable Windows' foreground-lock timeout globally while
+# Astur runs. Ignored while background_spawn_protection=true. With protection
+# off, true restores the old aggressive focus behavior.
+foreground_lock_disable = false
 # Place windows without waiting for each app to finish moving (posted
 # SetWindowPos). A re-tile then completes after the slowest app instead of
 # after every app in turn, and a busy app no longer delays the next command
@@ -3059,6 +3069,7 @@ fn parse_into_from(c: &mut Config, text: &str, source: &str) {
             }
             "persist_state" => c.persist_state = parse_bool(v),
             "ipc_allow_launch" => c.ipc_allow_launch = parse_bool(v),
+            "background_spawn_protection" => c.background_spawn_protection = parse_bool(v),
             "foreground_lock_disable" => c.foreground_lock_disable = parse_bool(v),
             "async_window_pos" => c.async_window_pos = parse_bool(v),
             "log_level" => {
@@ -3562,6 +3573,7 @@ pub fn reload_groups(old: &Config, new: &Config) -> ReloadGroups {
         yasb_enabled,
         yasb_port,
         ipc_allow_launch,
+        background_spawn_protection,
         foreground_lock_disable,
         async_window_pos,
         persist_state,
@@ -3724,7 +3736,7 @@ pub fn reload_groups(old: &Config, new: &Config) -> ReloadGroups {
     diff!(live: scratchpad_enabled, scratchpad_command, scratchpad_class);
     diff!(live: clipboard_history, clipboard_limit, clipboard_prefix, emoji_picker);
     diff!(live: emoji_prefix, wallpaper_dir, workspace_wallpapers, ipc_enabled, ipc_pipe);
-    diff!(live: ipc_allow_launch, foreground_lock_disable, async_window_pos);
+    diff!(live: ipc_allow_launch, background_spawn_protection, foreground_lock_disable, async_window_pos);
     diff!(live: yasb_enabled, yasb_port);
     diff!(live: persist_state, log_level, unknown_keys, extra_hotkeys, window_rules);
     diff!(live: ignore_classes, float_classes, key_focus_next, key_focus_prev);
