@@ -1,4 +1,4 @@
-ASTUR VI UPDATE 2.4.0.12 (PREVIEW)
+ASTUR VI UPDATE 2.4.0.13 (PREVIEW)
 
 This installer UPDATES the existing Astur English installation IN PLACE.
 It is an experimental fork, NOT an official stable upstream release.
@@ -15,13 +15,20 @@ The installer backs up the existing Astur.exe, astur-settings.exe,
 astur.conf and navbar.conf (when present) to:
 %LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.1
 A SECOND backup of the version currently installed is saved to:
-%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.12
+%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.13
 Both snapshots are kept on a repeat update. Do not remove either backup.
 To roll back, first quit Astur and restore the saved binaries/configuration
 from the second backup or reinstall the previously used installer.
 Do not run the original and fork simultaneously.
 
-WHAT IS NEW IN 2.4.0.12
+WHAT IS NEW IN 2.4.0.13
+- New "Protect active desktop from background tools" option is ON by default.
+  A newly shown background window is not adopted into Astur's tiling layout
+  until Windows actually foregrounds it. This prevents short-lived agent/CLI
+  PowerShell/CMD scan consoles from stealing a tile or reshuffling the desktop.
+- Windows' normal foreground-stealing guard remains enabled while this
+  protection is active, including after live config reloads. User-selected
+  terminals still become normal Astur-managed windows.
 - Native title-bar drag can move a managed tiled window to another monitor,
   without holding Left Alt. Alt+drag and existing keyboard moves remain.
 - A verified Zalo.exe TOPMOST, borderless, no-APPWINDOW notification host

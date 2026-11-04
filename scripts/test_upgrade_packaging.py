@@ -49,5 +49,5 @@ assert "not BackupCurrent(InstallDir, UserDir, OriginalBackupDir)" in update
 assert "not BackupCurrent(InstallDir, UserDir, PriorBackupDir)" in update
 assert "Immediate rollback binary hash mismatch" in workflow
 assert "Rollback config hash mismatch" in workflow
-assert "release/astur-vi-update-2.4.0.12" in workflow, "Restrict release to dedicated branch"
+assert f"release/astur-vi-update-{version}" in workflow, "Restrict release to dedicated branch"
 print("Astur VI in-place upgrade identity, version, dual-backup, rollback, smoke contract: PASS")

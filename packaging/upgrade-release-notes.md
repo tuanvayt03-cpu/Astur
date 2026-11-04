@@ -1,6 +1,21 @@
-# Astur VI Update 2.4.0.12 — experimental in-place upgrade
+# Astur VI Update 2.4.0.13 — experimental in-place upgrade
 
-**Build source:** `release/astur-vi-update-2.4.0.12`, based on `950dbd7`, includes the Zalo HWND classifier and native title-bar monitor transfer.
+**Build source:** `release/astur-vi-update-2.4.0.13`, based on `d55ca1a`.
+
+## 2.4.0.13 changes
+- Adds **Background Spawn Protection**, enabled by default. Newly shown background windows are left outside Astur's tiling registry until Windows actually foregrounds them, preventing short-lived agent/CLI PowerShell/CMD scan windows from taking a tile and reflowing the active desktop.
+- Keeps Windows' normal foreground-stealing protection enabled while Background Spawn Protection is active, including live config reloads. Existing configs that still contain `foreground_lock_disable=true` cannot silently disable the Windows guard while protection is enabled.
+- Adds a Windows & rules Settings toggle with English/Vietnamese UI. User-selected terminals still enter Astur normally through the existing foreground path; there is no permanent PowerShell/CMD blacklist and no forced minimize/restyle of foreign HWNDs.
+- Retains all 2.4.0.12 changes: native title-bar cross-monitor drag, Zalo topmost-borderless host bypass, native maximize fixes, click-through Astur overlays, dual rollback backups and bilingual Settings.
+- The installer preserves the original first-upgrade backup and also captures the immediately pre-2.4.0.13 installation under `%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.13`.
+
+**PREVIEW / acceptance limitation:** CI verifies the code and isolated upgrade/rollback path, but the new background-spawn behavior still requires live desktop confirmation on the affected one/two-monitor machines. A third-party process that is legitimately granted foreground or creates its own TOPMOST UI may still present itself; Astur does not blindly minimize or restyle foreign windows.
+
+---
+
+## Previous 2.4.0.12 changes
+
+**Historical note for 2.4.0.12:** Built from `release/astur-vi-update-2.4.0.12`, based on `950dbd7`, including the Zalo HWND classifier and native title-bar monitor transfer.
 
 ## 2.4.0.12 changes
 - Native title-bar drag of an Astur-managed tiled window across physical monitors now rehomes it to the target monitor's active workspace on release, without requiring Left Alt. Existing Alt+drag, keyboard monitor move, tiling order, native maximize and floating behavior remain available.
