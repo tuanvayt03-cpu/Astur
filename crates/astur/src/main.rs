@@ -5105,9 +5105,7 @@ fn decide_window_policy(f: WindowPolicyFacts) -> PolicyDecision {
     if let Some(action) = f.rule_action {
         match action {
             RuleAction::Ignore => return high(WindowPolicy::Ignore, "rule-ignore"),
-            RuleAction::Background => {
-                return high(WindowPolicy::Background, "rule-background")
-            }
+            RuleAction::Background => return high(WindowPolicy::Background, "rule-background"),
             RuleAction::Float => return high(WindowPolicy::Float, "rule-float"),
             RuleAction::Tile => return high(WindowPolicy::Tile, "rule-tile"),
             RuleAction::Auto => {}
@@ -12787,11 +12785,8 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     let hwnd = hwnd_from(h);
                     let astur_launch = mgr.pending_launch_mon != 0;
                     let intent = window_intent(event, GetForegroundWindow() == hwnd, astur_launch);
-                    let policy = window_policy_for(
-                        hwnd,
-                        intent,
-                        mgr.cfg.background_spawn_protection,
-                    );
+                    let policy =
+                        window_policy_for(hwnd, intent, mgr.cfg.background_spawn_protection);
                     if !matches!(policy.policy, WindowPolicy::Tile | WindowPolicy::Float) {
                         if astur_launch {
                             mgr.pending_launch_mon = 0;
@@ -12950,11 +12945,8 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                             GetForegroundWindow() == hwnd,
                             mgr.pending_launch_mon != 0,
                         );
-                        let policy = window_policy_for(
-                            hwnd,
-                            intent,
-                            mgr.cfg.background_spawn_protection,
-                        );
+                        let policy =
+                            window_policy_for(hwnd, intent, mgr.cfg.background_spawn_protection);
                         log_debug!(
                             "add rejected {h:#x} reason={} policy={:?} policy_reason={} confidence={:?} intent={:?} class='{}' event={trigger}",
                             manage_reject(hwnd).unwrap_or("now-passes"),
@@ -25656,8 +25648,20 @@ mod tests {
             work
         ));
         assert!(utility_window_shape(fixed, 0, "WinRAR", compact, work));
-        assert!(!utility_window_shape(normal, 0, "Chrome_WidgetWin_1", compact, work));
-        assert!(!utility_window_shape(normal, 0, "CabinetWClass", compact, work));
+        assert!(!utility_window_shape(
+            normal,
+            0,
+            "Chrome_WidgetWin_1",
+            compact,
+            work
+        ));
+        assert!(!utility_window_shape(
+            normal,
+            0,
+            "CabinetWClass",
+            compact,
+            work
+        ));
         assert!(!utility_window_shape(fixed, 0, "WinRAR", work, work));
     }
 

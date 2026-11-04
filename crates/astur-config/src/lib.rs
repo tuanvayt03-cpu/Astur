@@ -2413,7 +2413,10 @@ pub fn parse_window_rules(v: &str) -> Vec<WindowRule> {
     records(v)
         .filter_map(|f| {
             let action = f.first()?.to_ascii_lowercase();
-            if !matches!(action.as_str(), "auto" | "tile" | "float" | "background" | "ignore") {
+            if !matches!(
+                action.as_str(),
+                "auto" | "tile" | "float" | "background" | "ignore"
+            ) {
                 return None;
             }
             let one_based = |s: Option<&String>| {
@@ -5188,10 +5191,7 @@ outer_gap = 4
             "auto|WinRAR.exe|||| ;; background|powershell.exe|||| ;; float|SystemSettings.exe|||| ;; tile|chrome.exe|||| ;; ignore|overlay.exe||||",
         );
         let actions: Vec<&str> = rules.iter().map(|r| r.action.as_str()).collect();
-        assert_eq!(
-            actions,
-            ["auto", "background", "float", "tile", "ignore"]
-        );
+        assert_eq!(actions, ["auto", "background", "float", "tile", "ignore"]);
         assert_eq!(format_window_rules(&rules), "auto|WinRAR.exe|||| ;; background|powershell.exe|||| ;; float|SystemSettings.exe|||| ;; tile|chrome.exe|||| ;; ignore|overlay.exe||||");
         assert!(parse_window_rules("bogus|x.exe||||").is_empty());
     }
