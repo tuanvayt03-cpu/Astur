@@ -1,6 +1,8 @@
 //! Runtime configuration: the `Config` struct, its documented-default file
 //! templates, and the key/value parser. No Win32 — pure data and string work.
 
+pub mod i18n;
+
 /// User-supplied launcher entry. `icon` accepts an .ico/.png/.exe path or
 /// `auto`; resolution belongs to the Win32 UI process, not this pure crate.
 #[derive(Clone, PartialEq, Debug)]
@@ -21,7 +23,7 @@ pub struct SystemAction {
 }
 
 /// Rich window rule. Empty match fields are wildcards; every non-empty field
-/// must match. `action` is tile, float, or ignore.
+/// must match. `action` is auto, tile, float, background, or ignore.
 #[derive(Clone, PartialEq, Debug)]
 pub struct WindowRule {
     pub action: String,
@@ -135,9 +137,14 @@ pub struct Config {
     /// makes Astur a convenient parent process for something else already
     /// running as the user.
     pub ipc_allow_launch: bool,
+    /// Keep newly shown background windows out of tiling until Windows actually
+    /// foregrounds them. Also keeps Windows' normal foreground-stealing guard
+    /// enabled, so agent/tool consoles can wait on the taskbar instead of
+    /// interrupting the active app.
+    pub background_spawn_protection: bool,
     /// Disable Windows' foreground-lock timeout so focus changes are reliable.
     /// This is a GLOBAL, system-wide setting; Astur restores the previous value
-    /// on a graceful exit.
+    /// on a graceful exit. Ignored while background_spawn_protection is enabled.
     pub foreground_lock_disable: bool,
     /// Place app windows with posted (SWP_ASYNCWINDOWPOS) SetWindowPos calls,
     /// so a retile waits for the slowest app rather than for every app in
@@ -260,6 +267,8 @@ pub struct Config {
     pub bar_hover: bool,             // highlight the clickable item under the pointer
     pub bar_title_format: String,    // title widget: {title} {app}
     pub bar_title_bold: bool,        // title widget in a bold weight
+    /// Opt-in native maximize/F11 and transient photo/video popup independence.
+    pub independent_fullscreen_popups: bool,
 }
 
 /// Widget names accepted in the navbar `left` / `center` / `right` zone lists.
@@ -423,29 +432,68 @@ pub fn format_clock(fmt: &str, h24: bool, h: u32, m: u32, s: u32) -> String {
 /// `mon` is 1..=12, `wday` 0 = Sunday; out of range gives no name. Anything
 /// else is copied. Char-based so non-ASCII text never splits.
 pub fn format_date(fmt: &str, y: u32, mon: u32, day: u32, wday: u32) -> String {
-    const WD: [&str; 7] = [
-        "Sunday",
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-    ];
-    const MO: [&str; 12] = [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    ];
+    let (wd_names, wd_short, mo_names, mo_short) = if i18n::language() == "vi" {
+        (
+            [
+                "Chủ nhật",
+                "Thứ hai",
+                "Thứ ba",
+                "Thứ tư",
+                "Thứ năm",
+                "Thứ sáu",
+                "Thứ bảy",
+            ],
+            ["CN", "T2", "T3", "T4", "T5", "T6", "T7"],
+            [
+                "Tháng một",
+                "Tháng hai",
+                "Tháng ba",
+                "Tháng tư",
+                "Tháng năm",
+                "Tháng sáu",
+                "Tháng bảy",
+                "Tháng tám",
+                "Tháng chín",
+                "Tháng mười",
+                "Tháng mười một",
+                "Tháng mười hai",
+            ],
+            [
+                "Th1", "Th2", "Th3", "Th4", "Th5", "Th6", "Th7", "Th8", "Th9", "Th10", "Th11",
+                "Th12",
+            ],
+        )
+    } else {
+        (
+            [
+                "Sunday",
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+            ],
+            ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+            [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ],
+            [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ],
+        )
+    };
     let chars: Vec<char> = fmt.chars().collect();
     let at = |i: usize, tok: &str| {
         tok.chars()
@@ -456,13 +504,12 @@ pub fn format_date(fmt: &str, y: u32, mon: u32, day: u32, wday: u32) -> String {
         i.and_then(|i| chars.get(i))
             .is_some_and(|c| c.is_alphabetic())
     };
-    let wd = WD.get(wday as usize).copied().unwrap_or("");
-    let mo = (mon as usize)
-        .checked_sub(1)
-        .and_then(|i| MO.get(i))
-        .copied()
-        .unwrap_or("");
-    let short = |s: &str| s.chars().take(3).collect::<String>();
+    let wd_i = wday as usize;
+    let mo_i = (mon as usize).checked_sub(1);
+    let wd = wd_names.get(wd_i).copied().unwrap_or("");
+    let wd_short = wd_short.get(wd_i).copied().unwrap_or("");
+    let mo = mo_i.and_then(|i| mo_names.get(i)).copied().unwrap_or("");
+    let mo_short = mo_i.and_then(|i| mo_short.get(i)).copied().unwrap_or("");
     let mut out = String::new();
     let mut i = 0;
     while i < chars.len() {
@@ -473,13 +520,13 @@ pub fn format_date(fmt: &str, y: u32, mon: u32, day: u32, wday: u32) -> String {
         } else if at(i, "MMMM") {
             (mo.to_string(), 4)
         } else if at(i, "MMM") {
-            (short(mo), 3)
+            (mo_short.to_string(), 3)
         } else if at(i, "MM") {
             (format!("{mon:02}"), 2)
         } else if at(i, "dddd") {
             (wd.to_string(), 4)
         } else if at(i, "ddd") {
-            (short(wd), 3)
+            (wd_short.to_string(), 3)
         } else if at(i, "dd") {
             (format!("{day:02}"), 2)
         } else if chars[i] == 'd' && !letter(i.checked_sub(1)) && !letter(Some(i + 1)) {
@@ -1134,6 +1181,7 @@ impl Config {
         Config {
             per_monitor: false,
             start_tiled: true,
+            independent_fullscreen_popups: false,
             outer_gap: 8,
             inner_gap: 8,
             master_ratio: 0.55,
@@ -1238,7 +1286,8 @@ impl Config {
             yasb_enabled: false,
             yasb_port: 6123,
             ipc_allow_launch: false,
-            foreground_lock_disable: true,
+            background_spawn_protection: true,
+            foreground_lock_disable: false,
             async_window_pos: true,
             persist_state: true,
             log_level: "error".to_string(),
@@ -1527,6 +1576,9 @@ workspace_icons =
 
 # Tile windows automatically on launch (Alt+T toggles at runtime).  bool
 start_tiled = true
+# Keep maximized/F11 windows and transient media popups independent (bool).
+# Normal tiling continues underneath and Windows controls each window's z-order.
+independent_fullscreen_popups = false
 
 # Tiling layout.
 #   dwindle = each new window splits the remaining space, spiralling into the
@@ -1689,7 +1741,11 @@ ignore_classes =
 float_classes =
 # Rich rules. Records separated by ;;, fields by |:
 # action|exe|class|title|workspace|monitor
-# Empty match fields are wildcards. workspace/monitor are 1-based; 0/empty = unset.
+# action: auto | tile | float | background | ignore
+# Auto uses Astur's role/intent policy. Background leaves the window entirely
+# to Windows until a later user/rule change; Ignore is the stronger permanent
+# opt-out. Empty match fields are wildcards. workspace/monitor are 1-based;
+# 0/empty = unset.
 # Example, keep PowerToys popups out of the tiling (match by exe: titles are
 # localized): ignore|PowerToys.AdvancedPaste.exe ;; ignore|PowerToys.Peek.UI.exe
 window_rules =
@@ -1791,12 +1847,16 @@ ipc_allow_launch = false
 yasb_enabled = false
 yasb_port = 6123
 
-# Windows normally refuses to let a background app steal the foreground. Astur
-# disables that timeout so focus changes land reliably. It is a SYSTEM-WIDE
-# setting affecting every application, not just Astur; the previous value is put
-# back when Astur exits gracefully. Set false to leave the system setting alone
-# (focus may occasionally flash in the taskbar instead of switching).
-foreground_lock_disable = true
+# Protect the current desktop from windows spawned by background tools/agents.
+# A newly SHOWN window that is not the Windows foreground stays unmanaged until
+# you actually select it (taskbar / Alt+Tab / click). This prevents a short-lived
+# PowerShell/CMD/tool window from taking a tile and reflowing the whole layout.
+# It also preserves Windows' foreground-stealing guard while enabled.
+background_spawn_protection = true
+# Expert escape hatch: disable Windows' foreground-lock timeout globally while
+# Astur runs. Ignored while background_spawn_protection=true. With protection
+# off, true restores the old aggressive focus behavior.
+foreground_lock_disable = false
 # Place windows without waiting for each app to finish moving (posted
 # SetWindowPos). A re-tile then completes after the slowest app instead of
 # after every app in turn, and a busy app no longer delays the next command
@@ -2353,7 +2413,10 @@ pub fn parse_window_rules(v: &str) -> Vec<WindowRule> {
     records(v)
         .filter_map(|f| {
             let action = f.first()?.to_ascii_lowercase();
-            if !matches!(action.as_str(), "tile" | "float" | "ignore") {
+            if !matches!(
+                action.as_str(),
+                "auto" | "tile" | "float" | "background" | "ignore"
+            ) {
                 return None;
             }
             let one_based = |s: Option<&String>| {
@@ -2743,6 +2806,7 @@ fn parse_into_from(c: &mut Config, text: &str, source: &str) {
             // ---- window manager (astur.conf) ----
             "workspace_mode" => c.per_monitor = v.eq_ignore_ascii_case("per_monitor"),
             "start_tiled" => c.start_tiled = parse_bool(v),
+            "independent_fullscreen_popups" => c.independent_fullscreen_popups = parse_bool(v),
             "outer_gap" => {
                 if let Ok(n) = v.parse::<i32>() {
                     c.outer_gap = n.clamp(0, 500);
@@ -3012,6 +3076,7 @@ fn parse_into_from(c: &mut Config, text: &str, source: &str) {
             }
             "persist_state" => c.persist_state = parse_bool(v),
             "ipc_allow_launch" => c.ipc_allow_launch = parse_bool(v),
+            "background_spawn_protection" => c.background_spawn_protection = parse_bool(v),
             "foreground_lock_disable" => c.foreground_lock_disable = parse_bool(v),
             "async_window_pos" => c.async_window_pos = parse_bool(v),
             "log_level" => {
@@ -3430,6 +3495,7 @@ pub fn reload_groups(old: &Config, new: &Config) -> ReloadGroups {
     let Config {
         per_monitor,
         start_tiled,
+        independent_fullscreen_popups,
         outer_gap,
         inner_gap,
         master_ratio,
@@ -3514,6 +3580,7 @@ pub fn reload_groups(old: &Config, new: &Config) -> ReloadGroups {
         yasb_enabled,
         yasb_port,
         ipc_allow_launch,
+        background_spawn_protection,
         foreground_lock_disable,
         async_window_pos,
         persist_state,
@@ -3625,6 +3692,7 @@ pub fn reload_groups(old: &Config, new: &Config) -> ReloadGroups {
     // Workspace model and tile geometry. The bar keys here feed reserve_bar
     // (the work area the tiles fill), so they re-tile as well as rebuild.
     diff!(wm: per_monitor, workspaces, outer_gap, inner_gap, master_ratio, layout);
+    diff!(wm: independent_fullscreen_popups);
     diff!(wm: monitor_layouts, scroll_default_width, scroll_width_presets);
     diff!(wm: scroll_height_presets, scroll_center, tab_bar_height);
     diff!(wm: bar_enabled, bar_height, bar_bottom, bar_floating, bar_margin, bar_autohide);
@@ -3675,7 +3743,7 @@ pub fn reload_groups(old: &Config, new: &Config) -> ReloadGroups {
     diff!(live: scratchpad_enabled, scratchpad_command, scratchpad_class);
     diff!(live: clipboard_history, clipboard_limit, clipboard_prefix, emoji_picker);
     diff!(live: emoji_prefix, wallpaper_dir, workspace_wallpapers, ipc_enabled, ipc_pipe);
-    diff!(live: ipc_allow_launch, foreground_lock_disable, async_window_pos);
+    diff!(live: ipc_allow_launch, background_spawn_protection, foreground_lock_disable, async_window_pos);
     diff!(live: yasb_enabled, yasb_port);
     diff!(live: persist_state, log_level, unknown_keys, extra_hotkeys, window_rules);
     diff!(live: ignore_classes, float_classes, key_focus_next, key_focus_prev);
@@ -5117,6 +5185,17 @@ outer_gap = 4
         assert_eq!(keymap(&c)[&(MOD_ALT, 0x4A)], (Action::FocusNext, 0));
     }
 
+    #[test]
+    fn window_rules_accept_policy_engine_actions_without_breaking_old_rows() {
+        let rules = parse_window_rules(
+            "auto|WinRAR.exe|||| ;; background|powershell.exe|||| ;; float|SystemSettings.exe|||| ;; tile|chrome.exe|||| ;; ignore|overlay.exe||||",
+        );
+        let actions: Vec<&str> = rules.iter().map(|r| r.action.as_str()).collect();
+        assert_eq!(actions, ["auto", "background", "float", "tile", "ignore"]);
+        assert_eq!(format_window_rules(&rules), "auto|WinRAR.exe|||| ;; background|powershell.exe|||| ;; float|SystemSettings.exe|||| ;; tile|chrome.exe|||| ;; ignore|overlay.exe||||");
+        assert!(parse_window_rules("bogus|x.exe||||").is_empty());
+    }
+
     /// The keys a template assigns (every documented key, at its default).
     fn template_keys(text: &str) -> Vec<&str> {
         text.lines()
@@ -5806,6 +5885,8 @@ floating = true"
 
     #[test]
     fn clock_and_date_formats_keep_old_output_and_add_tokens() {
+        let _lock = i18n::TEST_LOCK.lock().unwrap();
+        i18n::set_language("en");
         // Golden values of the WM's formatters before they moved here.
         assert_eq!(format_clock("HH:mm", true, 9, 5, 7), "09:05");
         assert_eq!(format_clock("", true, 21, 41, 0), "21:41");
@@ -5829,6 +5910,24 @@ floating = true"
             "Saturday 24 October"
         );
         assert_eq!(format_date("d/MM/yyyy", 2026, 3, 7, 6), "7/03/2026");
+        i18n::set_language("vi");
+        assert_eq!(format_date("ddd dd MMM", 2026, 10, 4, 0), "CN 04 Th10");
+        assert_eq!(
+            format_date("dddd d MMMM", 2026, 10, 24, 6),
+            "Thứ bảy 24 Tháng mười"
+        );
+        i18n::set_language("en");
+    }
+
+    #[test]
+    fn independent_fullscreen_popup_mode_is_opt_in_and_reloads_wm() {
+        let off = default_config();
+        assert!(!off.independent_fullscreen_popups);
+        let on = parse_text("independent_fullscreen_popups = true");
+        assert!(on.independent_fullscreen_popups);
+        assert!(reload_groups(&off, &on).wm);
+        assert!(reload_groups(&on, &off).wm);
+        assert!(!parse_text("independent_fullscreen_popups = off").independent_fullscreen_popups);
     }
 
     #[test]

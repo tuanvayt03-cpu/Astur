@@ -1,0 +1,154 @@
+name: Astur VI Preview package and pre-release
+
+# Explicit release only. Never package or install over the user's active Astur.
+on:
+  push:
+    branches: ["feat/vi-notifications"]
+    paths:
+      - ".github/workflows/preview-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  PREVIEW_TAG: astur-vi-preview-2.4.0.1
+  PREVIEW_VERSION: 2.4.0-preview.1
+
+jobs:
+  package:
+    if: github.ref == 'refs/heads/feat/vi-notifications'
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check source format
+        run: cargo fmt --all --check
+
+      - name: Check Preview packaging contract
+        run: python scripts/test_preview_packaging.py
+
+      - name: Run translation contract
+        run: python scripts/test_i18n_inventory.py
+
+      - name: Check notification probe syntax
+        run: python -m py_compile scripts/capture_notification_windows.py
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --workspace
+
+      - name: Build Windows x64 binaries
+        run: cargo build --release --workspace
+
+      - name: Verify built executables and legal files
+        shell: pwsh
+        run: |
+          foreach ($file in @(
+            'target/release/astur.exe',
+            'target/release/astur-settings.exe',
+            'LICENSE',
+            'THIRD_PARTY_NOTICES.md',
+            'packaging/preview-install-notice.txt'
+          )) {
+            if (-not (Test-Path $file -PathType Leaf)) { throw "Missing required file: $file" }
+            if ((Get-Item $file).Length -eq 0) { throw "Empty file: $file" }
+          }
+
+      - name: Install Inno Setup for package generation
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build separate Astur VI Preview installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "Inno Setup ISCC.exe not found" }
+          & $iscc 'packaging\astur-vi-preview.iss'
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: $LASTEXITCODE" }
+
+      - name: Stage portable ZIP and SHA256 manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:PREVIEW_VERSION
+          $out = 'dist/preview'
+          $stage = Join-Path $env:RUNNER_TEMP 'astur-vi-preview-portable'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Copy-Item 'target/release/astur.exe' (Join-Path $stage 'Astur.exe')
+          Copy-Item 'target/release/astur-settings.exe' $stage
+          Copy-Item 'LICENSE' $stage
+          Copy-Item 'THIRD_PARTY_NOTICES.md' $stage
+          Copy-Item 'packaging/preview-install-notice.txt' (Join-Path $stage 'READ_ME_FIRST.txt')
+          $zip = Join-Path $out "Astur-VI-Preview-Portable-$version.zip"
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+          $setup = Join-Path $out "Astur-VI-Preview-Setup-$version.exe"
+          if (-not (Test-Path $setup)) { throw "Installer not generated: $setup" }
+          $sha = Join-Path $out 'SHA256SUMS.txt'
+          @($setup, $zip) | ForEach-Object {
+            $fileHash = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$fileHash *$([System.IO.Path]::GetFileName($_))"
+          } | Set-Content -Path $sha -Encoding utf8
+          Get-Content $sha
+
+      - name: Smoke test installer in isolated runner directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Resolve-Path "dist/preview/Astur-VI-Preview-Setup-$env:PREVIEW_VERSION.exe").Path
+          $target = Join-Path $env:RUNNER_TEMP 'AsturVITestOnly'
+          $p = Start-Process -FilePath $setup -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target"
+          ) -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installer smoke failed: $($p.ExitCode)" }
+          foreach ($file in @('Astur.exe','astur-settings.exe','LICENSE','THIRD_PARTY_NOTICES.md','READ_ME_FIRST.txt','unins000.exe')) {
+            $path = Join-Path $target $file
+            if (-not (Test-Path $path -PathType Leaf)) { throw "Missing installed file: $path" }
+          }
+          $u = Start-Process -FilePath (Join-Path $target 'unins000.exe') -ArgumentList @(
+            '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          ) -PassThru -Wait
+          if ($u.ExitCode -ne 0) { throw "Uninstaller smoke failed: $($u.ExitCode)" }
+          if (Test-Path (Join-Path $target 'Astur.exe')) {
+            throw 'Uninstall left executable in the isolated preview directory'
+          }
+
+      - name: Verify portable ZIP content
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dest = Join-Path $env:RUNNER_TEMP 'AsturVIPortableInspect'
+          Expand-Archive -LiteralPath "dist/preview/Astur-VI-Preview-Portable-$env:PREVIEW_VERSION.zip" -DestinationPath $dest
+          foreach ($file in @('Astur.exe','astur-settings.exe','LICENSE','THIRD_PARTY_NOTICES.md','READ_ME_FIRST.txt')) {
+            if (-not (Test-Path (Join-Path $dest $file) -PathType Leaf)) { throw "Missing ZIP file: $file" }
+          }
+
+      - name: Publish clearly marked experimental pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $tag = $env:PREVIEW_TAG
+          gh release view $tag --repo $repo *> $null
+          if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists; refusing overwrite" }
+          $files = @(
+            "dist/preview/Astur-VI-Preview-Setup-$env:PREVIEW_VERSION.exe",
+            "dist/preview/Astur-VI-Preview-Portable-$env:PREVIEW_VERSION.zip",
+            "dist/preview/SHA256SUMS.txt"
+          )
+          gh release create $tag @files --repo $repo --target $env:GITHUB_SHA --prerelease --latest=false --title "Astur VI Preview $env:PREVIEW_VERSION" --notes-file 'packaging/preview-release-notes.md'
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub preview release creation failed' }
