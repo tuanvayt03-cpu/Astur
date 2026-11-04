@@ -27,16 +27,18 @@ The decision also carries a reason and confidence for debug logging.
 
 1. Hard surface/security/native/notification exclusions.
 2. Legacy ignore class.
-3. Explicit app rule: auto/tile/float/background/ignore.
-4. Owned top-level window -> modal.
-5. Untitled surface -> ignore.
+3. Owned top-level window -> modal.
+4. Untitled surface -> ignore.
+5. Explicit app rule: auto/tile/float/background/ignore.
 6. Background-spawn protection -> background when the window is not foreground.
 7. Legacy float class / built-in settings utility.
 8. Generic utility shape -> float.
 9. Otherwise -> tile.
 
-Explicit app rules can override automatic utility/modal heuristics, but cannot
-override hard shell/security/native safety exclusions.
+Explicit app rules can override automatic utility/background heuristics, but
+cannot override shell/security/native safety, ownership/modal identity or an
+untitled non-app surface. A broad Tile rule therefore cannot turn Save As or a
+confirmation prompt into a tile.
 
 ## Utility heuristic
 

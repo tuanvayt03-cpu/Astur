@@ -5102,6 +5102,15 @@ fn decide_window_policy(f: WindowPolicyFacts) -> PolicyDecision {
     if f.ignore_class {
         return high(WindowPolicy::Ignore, "ignore-class");
     }
+    // Ownership and missing app identity are structural safety boundaries, not
+    // layout preferences. A broad "Always tile" rule must never turn Save As,
+    // confirmation or login prompts into half-screen tiles.
+    if f.has_owner {
+        return high(WindowPolicy::Modal, "owned-window");
+    }
+    if f.untitled {
+        return high(WindowPolicy::Ignore, "untitled");
+    }
     if let Some(action) = f.rule_action {
         match action {
             RuleAction::Ignore => return high(WindowPolicy::Ignore, "rule-ignore"),
@@ -5110,12 +5119,6 @@ fn decide_window_policy(f: WindowPolicyFacts) -> PolicyDecision {
             RuleAction::Tile => return high(WindowPolicy::Tile, "rule-tile"),
             RuleAction::Auto => {}
         }
-    }
-    if f.has_owner {
-        return high(WindowPolicy::Modal, "owned-window");
-    }
-    if f.untitled {
-        return high(WindowPolicy::Ignore, "untitled");
     }
     if f.background_protection && f.intent == WindowIntent::BackgroundSpawn {
         return high(WindowPolicy::Background, "background-spawn");
@@ -25565,9 +25568,8 @@ mod tests {
     }
 
     #[test]
-    fn explicit_window_rules_override_auto_heuristics_but_not_hard_safety() {
-        let owned_utility = WindowPolicyFacts {
-            has_owner: true,
+    fn explicit_window_rules_override_auto_heuristics_but_not_structural_safety() {
+        let utility = WindowPolicyFacts {
             utility_like: true,
             ..base_policy_facts()
         };
@@ -25580,20 +25582,23 @@ mod tests {
             assert_eq!(
                 decide_window_policy(WindowPolicyFacts {
                     rule_action: Some(action),
-                    ..owned_utility
+                    ..utility
                 })
                 .policy,
                 expected
             );
         }
-        assert_eq!(
-            decide_window_policy(WindowPolicyFacts {
-                rule_action: Some(RuleAction::Auto),
-                ..owned_utility
-            })
-            .policy,
-            WindowPolicy::Modal
-        );
+        for action in [RuleAction::Auto, RuleAction::Tile, RuleAction::Float] {
+            assert_eq!(
+                decide_window_policy(WindowPolicyFacts {
+                    has_owner: true,
+                    rule_action: Some(action),
+                    ..base_policy_facts()
+                })
+                .policy,
+                WindowPolicy::Modal
+            );
+        }
         assert_eq!(
             decide_window_policy(WindowPolicyFacts {
                 hard_reject: true,
