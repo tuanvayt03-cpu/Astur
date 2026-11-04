@@ -137,8 +137,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SW_RESTORE, SW_SHOWNA, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
     WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
     WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WNDCLASSW,
-    WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
+    WS_EX_APPWINDOW, WS_EX_DLGMODALFRAME, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
 };
 
 // --- tiling additions -----------------------------------------------------
@@ -5013,10 +5013,12 @@ unsafe fn window_class(hwnd: HWND) -> String {
     String::from_utf16_lossy(&buf[..n.max(0) as usize])
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RuleAction {
+    Auto,
     Tile,
     Float,
+    Background,
     Ignore,
 }
 
@@ -5025,6 +5027,118 @@ struct RulePlacement {
     action: RuleAction,
     workspace: Option<usize>,
     monitor: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowIntent {
+    Foreground,
+    BackgroundSpawn,
+    AsturLaunch,
+    Startup,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowPolicy {
+    Tile,
+    Float,
+    Background,
+    Modal,
+    Ignore,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PolicyConfidence {
+    High,
+    Medium,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WindowPolicyFacts {
+    hard_reject: bool,
+    notification: bool,
+    native_independent: bool,
+    elevated: bool,
+    ignore_class: bool,
+    rule_action: Option<RuleAction>,
+    has_owner: bool,
+    untitled: bool,
+    background_protection: bool,
+    intent: WindowIntent,
+    legacy_float: bool,
+    utility_like: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PolicyDecision {
+    policy: WindowPolicy,
+    reason: &'static str,
+    confidence: PolicyConfidence,
+}
+
+fn decide_window_policy(f: WindowPolicyFacts) -> PolicyDecision {
+    let high = |policy, reason| PolicyDecision {
+        policy,
+        reason,
+        confidence: PolicyConfidence::High,
+    };
+    let medium = |policy, reason| PolicyDecision {
+        policy,
+        reason,
+        confidence: PolicyConfidence::Medium,
+    };
+
+    if f.hard_reject {
+        return high(WindowPolicy::Ignore, "surface");
+    }
+    if f.notification {
+        return high(WindowPolicy::Ignore, "notification");
+    }
+    if f.native_independent {
+        return high(WindowPolicy::Ignore, "native-independent");
+    }
+    if f.elevated {
+        return high(WindowPolicy::Ignore, "elevated");
+    }
+    if f.ignore_class {
+        return high(WindowPolicy::Ignore, "ignore-class");
+    }
+    if let Some(action) = f.rule_action {
+        match action {
+            RuleAction::Ignore => return high(WindowPolicy::Ignore, "rule-ignore"),
+            RuleAction::Background => {
+                return high(WindowPolicy::Background, "rule-background")
+            }
+            RuleAction::Float => return high(WindowPolicy::Float, "rule-float"),
+            RuleAction::Tile => return high(WindowPolicy::Tile, "rule-tile"),
+            RuleAction::Auto => {}
+        }
+    }
+    if f.has_owner {
+        return high(WindowPolicy::Modal, "owned-window");
+    }
+    if f.untitled {
+        return high(WindowPolicy::Ignore, "untitled");
+    }
+    if f.background_protection && f.intent == WindowIntent::BackgroundSpawn {
+        return high(WindowPolicy::Background, "background-spawn");
+    }
+    if f.legacy_float {
+        return high(WindowPolicy::Float, "float-rule");
+    }
+    if f.utility_like {
+        return medium(WindowPolicy::Float, "utility-shape");
+    }
+    high(WindowPolicy::Tile, "main-window")
+}
+
+fn window_intent(event: u32, is_foreground: bool, astur_launch: bool) -> WindowIntent {
+    if astur_launch {
+        WindowIntent::AsturLaunch
+    } else if event == EVENT_SYSTEM_FOREGROUND || is_foreground {
+        WindowIntent::Foreground
+    } else {
+        WindowIntent::BackgroundSpawn
+    }
 }
 
 fn glob_match(pattern: &str, value: &str) -> bool {
@@ -5088,8 +5202,10 @@ unsafe fn match_window_rule(hwnd: HWND) -> Option<RulePlacement> {
             return None;
         }
         let action = match rule.action.as_str() {
+            "auto" => RuleAction::Auto,
             "tile" => RuleAction::Tile,
             "float" => RuleAction::Float,
+            "background" => RuleAction::Background,
             "ignore" => RuleAction::Ignore,
             _ => return None,
         };
@@ -5222,6 +5338,53 @@ fn transient_overlay_shape(style: u32, exstyle: u32, rect: &RECT, monitor: &RECT
     (popup && (topmost || anchored || (at_vertical_edge && compact_banner)))
         || (layered && (topmost || anchored || compact_banner))
         || shallow_edge_banner
+}
+
+/// Generic utility/dialog heuristic. It intentionally does not look at process
+/// names: a main WinRAR/Explorer/Chrome window stays tileable, while a compact
+/// fixed-size progress/settings/dialog surface can remain free. Size alone is
+/// never enough; a normal resizable app is not demoted merely because the user
+/// made it small.
+fn utility_window_shape(style: u32, exstyle: u32, class: &str, rect: RECT, work: RECT) -> bool {
+    if class.eq_ignore_ascii_case("#32770")
+        || class.eq_ignore_ascii_case("MsiDialogCloseClass")
+        || exstyle & WS_EX_DLGMODALFRAME.0 != 0
+    {
+        return true;
+    }
+    let w = i64::from(rect.right) - i64::from(rect.left);
+    let h = i64::from(rect.bottom) - i64::from(rect.top);
+    let sw = i64::from(work.right) - i64::from(work.left);
+    let sh = i64::from(work.bottom) - i64::from(work.top);
+    if w <= 0 || h <= 0 || sw <= 0 || sh <= 0 {
+        return false;
+    }
+    let fixed = style & (WS_THICKFRAME.0 | WS_MAXIMIZEBOX.0 | WS_MINIMIZEBOX.0) == 0;
+    let captioned = style & (WS_CAPTION.0 | WS_SYSMENU.0) != 0;
+    let compact = w * 100 <= sw * 72 && h * 100 <= sh * 72 && w * h * 100 <= sw * sh * 45;
+    fixed && captioned && compact
+}
+
+unsafe fn utility_window(hwnd: HWND, class: &str) -> bool {
+    let mut rect = RECT::default();
+    if GetWindowRect(hwnd, &mut rect).is_err() {
+        return false;
+    }
+    let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    let mut info = MONITORINFO {
+        cbSize: core::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if !GetMonitorInfoW(hmon, &mut info).as_bool() {
+        return false;
+    }
+    utility_window_shape(
+        GetWindowLongW(hwnd, GWL_STYLE) as u32,
+        GetWindowLongW(hwnd, GWL_EXSTYLE) as u32,
+        class,
+        rect,
+        info.rcWork,
+    )
 }
 
 /// The 2026-11-03 NCPC Win32 trace captured a second Zalo Chrome_WidgetWin_1
@@ -5462,6 +5625,63 @@ unsafe fn native_independence_enabled(hwnd: HWND, opt_in: bool) -> bool {
     )
 }
 
+unsafe fn window_policy_for(
+    hwnd: HWND,
+    intent: WindowIntent,
+    background_protection: bool,
+) -> PolicyDecision {
+    if app_surface_reject(hwnd).is_some() {
+        return decide_window_policy(WindowPolicyFacts {
+            hard_reject: true,
+            notification: false,
+            native_independent: false,
+            elevated: false,
+            ignore_class: false,
+            rule_action: None,
+            has_owner: false,
+            untitled: false,
+            background_protection,
+            intent,
+            legacy_float: false,
+            utility_like: false,
+        });
+    }
+    let notification = is_notification_overlay(hwnd);
+    let native_independent =
+        native_independence_enabled(hwnd, INDEPENDENT_FULLSCREEN_POPUPS.load(Ordering::Acquire));
+    let elevated = integrity_above_own(hwnd);
+    let class = window_class(hwnd);
+    let ignore_class = IGNORE_CLASSES
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|c| c.eq_ignore_ascii_case(&class));
+    let rule = match_window_rule(hwnd);
+    let has_owner = GetWindow(hwnd, GW_OWNER).is_ok_and(|owner| !owner.0.is_null());
+    let untitled = GetWindowTextLengthW(hwnd) <= 0;
+    let legacy_float = FLOAT_CLASSES
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|c| c.eq_ignore_ascii_case(&class))
+        || window_exe(hwnd).is_some_and(|exe| floats_by_default(&exe));
+    let utility_like = utility_window(hwnd, &class);
+    decide_window_policy(WindowPolicyFacts {
+        hard_reject: false,
+        notification,
+        native_independent,
+        elevated,
+        ignore_class,
+        rule_action: rule.map(|r| r.action),
+        has_owner,
+        untitled,
+        background_protection,
+        intent,
+        legacy_float,
+        utility_like,
+    })
+}
+
 /// Is this a normal top-level application window we should tile?
 unsafe fn is_manageable(hwnd: HWND) -> bool {
     manage_reject(hwnd).is_none()
@@ -5490,7 +5710,7 @@ unsafe fn manage_reject(hwnd: HWND) -> Option<&'static str> {
         return Some("ignore_classes");
     }
     match_window_rule(hwnd)
-        .is_some_and(|r| r.action == RuleAction::Ignore)
+        .is_some_and(|r| matches!(r.action, RuleAction::Ignore | RuleAction::Background))
         .then_some("rule")
 }
 
@@ -5594,30 +5814,16 @@ unsafe fn request_bar_mode_refresh() {
     }
 }
 
-/// Should a freshly-managed window start floating? Rich rules take precedence
-/// over legacy class-only lists, so a tile rule can override a broad float list.
-/// Then the built-in floats (`floats_by_default`).
-unsafe fn should_float(hwnd: HWND, rule: Option<RulePlacement>) -> bool {
-    if let Some(rule) = rule {
-        return rule.action == RuleAction::Float;
-    }
-    let class = window_class(hwnd);
-    FLOAT_CLASSES
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|c| c.eq_ignore_ascii_case(&class))
-        || window_exe(hwnd).is_some_and(|exe| floats_by_default(&exe))
-}
-
-/// Apps that float unless a window rule says otherwise. Astur's own
-/// settings window: tiled, every gap or bar edit it applies live re-tiles
-/// it under the cursor.
+/// Built-in utilities that should remain free unless an explicit app rule says
+/// otherwise. These are application settings surfaces, not primary work panes.
 fn floats_by_default(exe_path: &str) -> bool {
     std::path::Path::new(exe_path)
         .file_name()
         .and_then(|n| n.to_str())
-        .is_some_and(|n| n.eq_ignore_ascii_case("astur-settings.exe"))
+        .is_some_and(|n| {
+            n.eq_ignore_ascii_case("astur-settings.exe")
+                || n.eq_ignore_ascii_case("SystemSettings.exe")
+        })
 }
 
 /// Compute the visible-frame correction: Win32 GetWindowRect includes an
@@ -8293,10 +8499,18 @@ unsafe fn assign_existing_windows(mgr: &mut Manager) {
             continue;
         }
         let hwnd = hwnd_from(h);
+        let policy = window_policy_for(
+            hwnd,
+            WindowIntent::Startup,
+            mgr.cfg.background_spawn_protection,
+        );
+        if !matches!(policy.policy, WindowPolicy::Tile | WindowPolicy::Float) {
+            continue;
+        }
         let mi = monitor_index_for_window(mgr, hwnd);
         let a = mgr.monitors[mi].active;
         mgr.monitors[mi].workspaces[a].windows.push(h);
-        if should_float(hwnd, match_window_rule(hwnd)) {
+        if policy.policy == WindowPolicy::Float {
             mgr.monitors[mi].workspaces[a].floating.push(h);
         }
         mgr.monitors[mi].workspaces[a].focused = h;
@@ -12571,6 +12785,39 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 }
                 None if is_manageable(hwnd_from(h)) => {
                     let hwnd = hwnd_from(h);
+                    let astur_launch = mgr.pending_launch_mon != 0;
+                    let intent = window_intent(event, GetForegroundWindow() == hwnd, astur_launch);
+                    let policy = window_policy_for(
+                        hwnd,
+                        intent,
+                        mgr.cfg.background_spawn_protection,
+                    );
+                    if !matches!(policy.policy, WindowPolicy::Tile | WindowPolicy::Float) {
+                        if astur_launch {
+                            mgr.pending_launch_mon = 0;
+                        }
+                        if log_on(LOG_DEBUG) {
+                            log_debug!(
+                                "policy deferred {h:#x} policy={:?} reason={} confidence={:?} intent={:?} class='{}'",
+                                policy.policy,
+                                policy.reason,
+                                policy.confidence,
+                                intent,
+                                window_class(hwnd)
+                            );
+                        }
+                        return;
+                    }
+                    if log_on(LOG_DEBUG) {
+                        log_debug!(
+                            "policy admit {h:#x} policy={:?} reason={} confidence={:?} intent={:?} class='{}'",
+                            policy.policy,
+                            policy.reason,
+                            policy.confidence,
+                            intent,
+                            window_class(hwnd)
+                        );
+                    }
                     let rule = match_window_rule(hwnd);
                     let pending = std::mem::replace(&mut mgr.pending_launch_mon, 0);
                     let mut mi = mgr
@@ -12616,7 +12863,7 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     let visible = wi == mgr.monitors[mi].active;
                     // On a scrolling monitor: a new column right of the
                     // focused one, scrolled into view.
-                    let floating = scratch || should_float(hwnd, rule);
+                    let floating = scratch || policy.policy == WindowPolicy::Float;
                     // An uncloak retry (#16a) can adopt a window long after
                     // the user moved on to another one, which keeps the OS
                     // foreground and gets no new FOREGROUND event: tile it,
@@ -12698,9 +12945,23 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                             EVENT_OBJECT_UNCLOAKED => "uncloaked",
                             _ => "other",
                         };
+                        let intent = window_intent(
+                            event,
+                            GetForegroundWindow() == hwnd,
+                            mgr.pending_launch_mon != 0,
+                        );
+                        let policy = window_policy_for(
+                            hwnd,
+                            intent,
+                            mgr.cfg.background_spawn_protection,
+                        );
                         log_debug!(
-                            "add rejected {h:#x} reason={} class='{}' event={trigger}",
+                            "add rejected {h:#x} reason={} policy={:?} policy_reason={} confidence={:?} intent={:?} class='{}' event={trigger}",
                             manage_reject(hwnd).unwrap_or("now-passes"),
+                            policy.policy,
+                            policy.reason,
+                            policy.confidence,
+                            intent,
                             window_class(hwnd)
                         );
                     }
@@ -25260,6 +25521,144 @@ mod tests {
         assert!(!foreground_lock_should_disable(true, false));
         assert!(!foreground_lock_should_disable(false, false));
         assert!(foreground_lock_should_disable(false, true));
+    }
+
+    fn base_policy_facts() -> WindowPolicyFacts {
+        WindowPolicyFacts {
+            hard_reject: false,
+            notification: false,
+            native_independent: false,
+            elevated: false,
+            ignore_class: false,
+            rule_action: None,
+            has_owner: false,
+            untitled: false,
+            background_protection: true,
+            intent: WindowIntent::Foreground,
+            legacy_float: false,
+            utility_like: false,
+        }
+    }
+
+    #[test]
+    fn window_policy_separates_main_utility_modal_background_and_ignore() {
+        let main = decide_window_policy(base_policy_facts());
+        assert_eq!(main.policy, WindowPolicy::Tile);
+        assert_eq!(main.reason, "main-window");
+
+        let utility = decide_window_policy(WindowPolicyFacts {
+            utility_like: true,
+            ..base_policy_facts()
+        });
+        assert_eq!(utility.policy, WindowPolicy::Float);
+        assert_eq!(utility.confidence, PolicyConfidence::Medium);
+
+        let modal = decide_window_policy(WindowPolicyFacts {
+            has_owner: true,
+            ..base_policy_facts()
+        });
+        assert_eq!(modal.policy, WindowPolicy::Modal);
+
+        let background = decide_window_policy(WindowPolicyFacts {
+            intent: WindowIntent::BackgroundSpawn,
+            ..base_policy_facts()
+        });
+        assert_eq!(background.policy, WindowPolicy::Background);
+
+        let ignored = decide_window_policy(WindowPolicyFacts {
+            hard_reject: true,
+            ..base_policy_facts()
+        });
+        assert_eq!(ignored.policy, WindowPolicy::Ignore);
+    }
+
+    #[test]
+    fn explicit_window_rules_override_auto_heuristics_but_not_hard_safety() {
+        let owned_utility = WindowPolicyFacts {
+            has_owner: true,
+            utility_like: true,
+            ..base_policy_facts()
+        };
+        for (action, expected) in [
+            (RuleAction::Tile, WindowPolicy::Tile),
+            (RuleAction::Float, WindowPolicy::Float),
+            (RuleAction::Background, WindowPolicy::Background),
+            (RuleAction::Ignore, WindowPolicy::Ignore),
+        ] {
+            assert_eq!(
+                decide_window_policy(WindowPolicyFacts {
+                    rule_action: Some(action),
+                    ..owned_utility
+                })
+                .policy,
+                expected
+            );
+        }
+        assert_eq!(
+            decide_window_policy(WindowPolicyFacts {
+                rule_action: Some(RuleAction::Auto),
+                ..owned_utility
+            })
+            .policy,
+            WindowPolicy::Modal
+        );
+        assert_eq!(
+            decide_window_policy(WindowPolicyFacts {
+                hard_reject: true,
+                rule_action: Some(RuleAction::Tile),
+                ..base_policy_facts()
+            })
+            .policy,
+            WindowPolicy::Ignore
+        );
+    }
+
+    #[test]
+    fn foreground_or_astur_launch_promotes_a_background_candidate() {
+        assert_eq!(
+            window_intent(EVENT_OBJECT_SHOW, false, false),
+            WindowIntent::BackgroundSpawn
+        );
+        assert_eq!(
+            window_intent(EVENT_OBJECT_SHOW, true, false),
+            WindowIntent::Foreground
+        );
+        assert_eq!(
+            window_intent(EVENT_SYSTEM_FOREGROUND, true, false),
+            WindowIntent::Foreground
+        );
+        assert_eq!(
+            window_intent(EVENT_OBJECT_SHOW, false, true),
+            WindowIntent::AsturLaunch
+        );
+        assert_eq!(
+            decide_window_policy(WindowPolicyFacts {
+                intent: WindowIntent::AsturLaunch,
+                ..base_policy_facts()
+            })
+            .policy,
+            WindowPolicy::Tile
+        );
+    }
+
+    #[test]
+    fn compact_fixed_dialogs_float_but_small_resizable_apps_still_tile() {
+        let work = rc(0, 0, 1920, 1040);
+        let compact = rc(600, 280, 1200, 720);
+        let normal = WS_CAPTION.0 | WS_SYSMENU.0 | WS_THICKFRAME.0 | WS_MAXIMIZEBOX.0;
+        let fixed = WS_CAPTION.0 | WS_SYSMENU.0;
+        assert!(utility_window_shape(fixed, 0, "#32770", compact, work));
+        assert!(utility_window_shape(
+            fixed,
+            WS_EX_DLGMODALFRAME.0,
+            "WinRAR",
+            compact,
+            work
+        ));
+        assert!(utility_window_shape(fixed, 0, "WinRAR", compact, work));
+        assert!(!utility_window_shape(normal, 0, "Chrome_WidgetWin_1", compact, work));
+        assert!(!utility_window_shape(normal, 0, "CabinetWClass", compact, work));
+        assert!(!utility_window_shape(fixed, 0, "WinRAR", work, work));
     }
 
     // ---- drag drops (batch 17, INPUT-9 / INPUT-5) -----------------------------

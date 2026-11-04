@@ -1791,7 +1791,7 @@ impl App {
         if table(
             ui,
             f,
-            ("App rules", "What Astur does with an app's new windows: always float them (they keep their own size and place), always tile them, or leave them alone (Astur never touches them), and which workspace or monitor they open on. Pick a window that is open now, or type the app's file name, e.g. notepad.exe. The first matching rule wins. Older class-only rows stay at the bottom: a Leave alone one wins over every rule.", "window_rules, ignore_classes, float_classes"),
+            ("App rules", "What Astur does with an app's new windows: Automatic uses the Window Policy Engine; Always float keeps the app's own size/place; Always tile gives it a tile; Keep in background leaves it to Windows without changing the layout; Leave alone opts it out of Astur. You can also choose its workspace or monitor. Pick an open window or type an app file name such as notepad.exe. The first matching rule wins. Older class-only rows stay at the bottom.", "window_rules, ignore_classes, float_classes"),
             &mut m.rows.rules,
             &dm.rows.rules,
             (
@@ -1799,7 +1799,7 @@ impl App {
                 RuleRow {
                     list: false,
                     rule: WindowRule {
-                        action: "float".into(),
+                        action: "auto".into(),
                         exe: String::new(),
                         class: String::new(),
                         title: String::new(),
@@ -4030,8 +4030,10 @@ fn rule_ui(ui: &mut Ui, r: &mut RuleRow) -> Option<String> {
         &[("ignore", "Leave alone"), ("float", "Always float")]
     } else {
         &[
+            ("auto", "Automatic"),
             ("float", "Always float"),
             ("tile", "Always tile"),
+            ("background", "Keep in background"),
             ("ignore", "Leave alone"),
         ]
     };

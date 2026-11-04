@@ -23,7 +23,7 @@ pub struct SystemAction {
 }
 
 /// Rich window rule. Empty match fields are wildcards; every non-empty field
-/// must match. `action` is tile, float, or ignore.
+/// must match. `action` is auto, tile, float, background, or ignore.
 #[derive(Clone, PartialEq, Debug)]
 pub struct WindowRule {
     pub action: String,
@@ -1741,7 +1741,11 @@ ignore_classes =
 float_classes =
 # Rich rules. Records separated by ;;, fields by |:
 # action|exe|class|title|workspace|monitor
-# Empty match fields are wildcards. workspace/monitor are 1-based; 0/empty = unset.
+# action: auto | tile | float | background | ignore
+# Auto uses Astur's role/intent policy. Background leaves the window entirely
+# to Windows until a later user/rule change; Ignore is the stronger permanent
+# opt-out. Empty match fields are wildcards. workspace/monitor are 1-based;
+# 0/empty = unset.
 # Example, keep PowerToys popups out of the tiling (match by exe: titles are
 # localized): ignore|PowerToys.AdvancedPaste.exe ;; ignore|PowerToys.Peek.UI.exe
 window_rules =
@@ -2409,7 +2413,7 @@ pub fn parse_window_rules(v: &str) -> Vec<WindowRule> {
     records(v)
         .filter_map(|f| {
             let action = f.first()?.to_ascii_lowercase();
-            if !matches!(action.as_str(), "tile" | "float" | "ignore") {
+            if !matches!(action.as_str(), "auto" | "tile" | "float" | "background" | "ignore") {
                 return None;
             }
             let one_based = |s: Option<&String>| {
@@ -5176,6 +5180,20 @@ outer_gap = 4
             .iter()
             .any(|i| i.action == Action::SwitchWorkspace && i.level == Warn));
         assert_eq!(keymap(&c)[&(MOD_ALT, 0x4A)], (Action::FocusNext, 0));
+    }
+
+    #[test]
+    fn window_rules_accept_policy_engine_actions_without_breaking_old_rows() {
+        let rules = parse_window_rules(
+            "auto|WinRAR.exe|||| ;; background|powershell.exe|||| ;; float|SystemSettings.exe|||| ;; tile|chrome.exe|||| ;; ignore|overlay.exe||||",
+        );
+        let actions: Vec<&str> = rules.iter().map(|r| r.action.as_str()).collect();
+        assert_eq!(
+            actions,
+            ["auto", "background", "float", "tile", "ignore"]
+        );
+        assert_eq!(format_window_rules(&rules), "auto|WinRAR.exe|||| ;; background|powershell.exe|||| ;; float|SystemSettings.exe|||| ;; tile|chrome.exe|||| ;; ignore|overlay.exe||||");
+        assert!(parse_window_rules("bogus|x.exe||||").is_empty());
     }
 
     /// The keys a template assigns (every documented key, at its default).
