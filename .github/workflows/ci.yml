@@ -87,3 +87,24 @@ jobs:
             docs/vi/NCPC_ZALO_HWND_EVIDENCE_2026-11-03.md
           if-no-files-found: error
           retention-days: 14
+
+      - name: Record Window Policy acceptance provenance
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/window-policy-engine-v1-20261104'
+        shell: pwsh
+        run: |
+          "Commit: $env:GITHUB_SHA" | Set-Content target/release/WINDOW_POLICY_BUILD_INFO.txt
+          "CI: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" | Add-Content target/release/WINDOW_POLICY_BUILD_INFO.txt
+
+      - name: Upload Window Policy portable acceptance bundle
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/window-policy-engine-v1-20261104'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Astur-WindowPolicy-Preview-${{ github.sha }}
+          path: |
+            target/release/astur.exe
+            target/release/astur-settings.exe
+            target/release/WINDOW_POLICY_BUILD_INFO.txt
+            docs/vi/WINDOW_POLICY_ACCEPTANCE_README.txt
+            docs/vi/WINDOW_POLICY_ENGINE_V1_2026-11-04.md
+          if-no-files-found: error
+          retention-days: 14
