@@ -324,7 +324,7 @@ pub(crate) struct StripCol {
     pub width: f32,
     /// One entry per tile, top to bottom; heights are proportional to these.
     pub weights: Vec<f32>,
-    pub tabbed: bool, // show a user-requested tab bar
+    pub tabbed: bool,     // show a user-requested tab bar
     pub auto_stack: bool, // implicit overflow uses same rectangle with no bar
     /// Active tab. Every tab gets the same rect here and the WM parks the
     /// inactive ones, so the geometry itself never reads it.
@@ -945,7 +945,10 @@ mod tests {
     #[test]
     fn automatic_slot_stack_shares_rect_but_never_draws_a_tab_bar() {
         let area = RECT {
-            left: 0, top: 0, right: 1000, bottom: 700,
+            left: 0,
+            top: 0,
+            right: 1000,
+            bottom: 700,
         };
         let stacked = StripCol {
             auto_stack: true,
@@ -954,7 +957,10 @@ mod tests {
         let out = strip_layout(area, &[col(0.5, &[1.0]), stacked], 0, 10, 10, 26);
         assert_eq!(out.tiles.len(), 3);
         assert_eq!(out.tiles[1], out.tiles[2]);
-        assert_eq!(out.tiles[1].top, 10, "implicit stack keeps full tile height");
+        assert_eq!(
+            out.tiles[1].top, 10,
+            "implicit stack keeps full tile height"
+        );
         assert!(out.tab_bars.iter().all(Option::is_none));
 
         let manual = tabbed(0.5, 2);

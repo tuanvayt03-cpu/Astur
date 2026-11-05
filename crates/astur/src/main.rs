@@ -4240,8 +4240,8 @@ struct Strip {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ColMeta {
-    width: f32, // fraction of the view (layout::col_px)
-    tabbed: bool, // explicitly toggled by the user; controls the visible tab bar
+    width: f32,       // fraction of the view (layout::col_px)
+    tabbed: bool,     // explicitly toggled by the user; controls the visible tab bar
     auto_stack: bool, // overflow slot reuse: one shown window, NO Astur tab bar
     // Last-focused tile: the tab a tabbed column shows while focus is
     // elsewhere, and where focus lands when it comes back to the column.
@@ -8560,9 +8560,9 @@ fn slot_member_was_parked(strip: &Strip, tiled: &[isize], h: isize) -> bool {
     };
     let col = &cols[ci];
     col.len() > 1
-        && strip.col_meta(col).is_some_and(|m| {
-            (m.tabbed || m.auto_stack) && m.active != h
-        })
+        && strip
+            .col_meta(col)
+            .is_some_and(|m| (m.tabbed || m.auto_stack) && m.active != h)
 }
 
 /// Detect an existing HWND physically parked outside every monitor.
@@ -8574,8 +8574,7 @@ unsafe fn window_is_physically_parked(h: isize) -> bool {
         return false;
     }
     let mut r = RECT::default();
-    GetWindowRect(hwnd, &mut r).is_ok()
-        && MonitorFromRect(&r, MONITOR_DEFAULTTONULL).0.is_null()
+    GetWindowRect(hwnd, &mut r).is_ok() && MonitorFromRect(&r, MONITOR_DEFAULTTONULL).0.is_null()
 }
 
 /// Must one activation actually retile a stacked slot? Keep this predicate
@@ -8613,9 +8612,7 @@ unsafe fn strip_reveal(mgr: &mut Manager, h: isize) {
     mgr.monitors[mi].workspaces[wi].focused = h;
     // Recover only Astur's OWN stale hide of a window on this ACTIVE
     // workspace. Never undo an app's intentional SW_HIDE (close to tray).
-    if was_hidden_by_us(h)
-        && h != SCRATCHPAD_HWND.load(Ordering::Relaxed)
-    {
+    if was_hidden_by_us(h) && h != SCRATCHPAD_HWND.load(Ordering::Relaxed) {
         unmark_hidden_by_us(h);
         SUPPRESS.store(true, Ordering::Relaxed);
         let _ = ShowWindow(hwnd_from(h), SW_SHOWNA);
@@ -13499,6 +13496,12 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     }
                 } else {
                     strip_reveal(mgr, h);
+                    if iconic {
+                        // After Windows restores a minimized HWND, its old
+                        // normal rect may be on-screen but not match the
+                        // reserved Astur slot; force one placement.
+                        retile_monitor(mgr, mi);
+                    }
                 }
                 touch_window_mru(h);
                 focus_window(h);
@@ -13550,10 +13553,18 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
             // App button clicked: focus that window (same effect as clicking
             // it, so a parked strip tile scrolls into view first).
             if IsWindow(hwnd_from(h)).as_bool() {
-                if IsIconic(hwnd_from(h)).as_bool() {
+                let restored = IsIconic(hwnd_from(h)).as_bool();
+                if restored {
                     let _ = ShowWindow(hwnd_from(h), SW_RESTORE);
                 }
                 strip_reveal(mgr, h);
+                if restored {
+                    if let Some((mi, wi)) = mgr.locate(h) {
+                        if wi == mgr.monitors[mi].active {
+                            retile_monitor(mgr, mi);
+                        }
+                    }
+                }
                 focus_window(h);
             }
         }
@@ -14377,7 +14388,8 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
             let cols = ws.strip.columns(&scroll_layout_windows(ws));
             if let Some(t) = locate_tile(&cols, w).and_then(|(ci, _)| cols[ci].get(i).copied()) {
                 mgr.focused_mon = mi;
-                if IsIconic(hwnd_from(t)).as_bool() {
+                let restored = IsIconic(hwnd_from(t)).as_bool();
+                if restored {
                     let _ = ShowWindow(hwnd_from(t), SW_RESTORE);
                 }
                 // Like a bar app button (BarFocus): the clicked tab becomes
@@ -14385,6 +14397,9 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 // column in, and the cursor stays on the tab bar for the
                 // next click instead of warping to the window.
                 strip_reveal(mgr, t);
+                if restored {
+                    retile_monitor(mgr, mi);
+                }
                 focus_window(t);
             }
         }
@@ -18531,9 +18546,7 @@ unsafe fn tab_bars_build(mgr: &Manager) -> Vec<TabBarData> {
         for (ci, rect, active) in tab_bar_slots(&ws.strip, &cols, ws.focused, &out, &map) {
             // A single-window column or an automatically stacked slot is
             // never a user-requested tab bar, even with stale metadata.
-            if cols[ci].len() < 2
-                || ws.strip.col_meta(&cols[ci]).is_none_or(|m| !m.tabbed)
-            {
+            if cols[ci].len() < 2 || ws.strip.col_meta(&cols[ci]).is_none_or(|m| !m.tabbed) {
                 continue;
             }
             // The bar's icon size, so the icons share its cache entries (and
@@ -29863,8 +29876,7 @@ mod tests {
         let mut ws = strip_ws(&[A, B], &[]);
         ws.focused = A;
         let area = rect(0, 0, 1000, 700);
-        let (at, destination) =
-            scroll_anchor_admission(&ws, &[A, B], area, &cfg, Some(B));
+        let (at, destination) = scroll_anchor_admission(&ws, &[A, B], area, &cfg, Some(B));
         assert_eq!(at, Some(DropAt::Below(B)));
         assert_eq!(destination, Some(B));
         ws.insert_in_strip(&[A, B], C, at);
@@ -29906,7 +29918,10 @@ mod tests {
         ws.strip.forget(A);
         ws.strip.tidy(&ws.windows, &[B]);
         let meta = ws.strip.col_meta(&[B]).unwrap();
-        assert!(!meta.auto_stack, "single Explorer cannot keep automatic tab");
+        assert!(
+            !meta.auto_stack,
+            "single Explorer cannot keep automatic tab"
+        );
         assert_eq!(meta.active, B);
         assert!(ws.strip.hidden_tabs(&[B], B).is_empty());
     }
