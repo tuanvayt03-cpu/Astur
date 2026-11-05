@@ -4070,8 +4070,7 @@ impl Workspace {
     /// metadata belong to *positions*, not to the HWND that moved out.
     fn swap_slot_occupants(&mut self, tiled: &[isize], from: isize, to: isize) -> bool {
         let cols = self.strip.columns(tiled);
-        let (Some((a, _)), Some((b, _))) =
-            (locate_tile(&cols, from), locate_tile(&cols, to))
+        let (Some((a, _)), Some((b, _))) = (locate_tile(&cols, from), locate_tile(&cols, to))
         else {
             return false;
         };
@@ -4089,8 +4088,12 @@ impl Workspace {
         self.windows.swap(ia, ib);
         for (h, new_id) in [(from, b_id), (to, a_id)] {
             match new_id {
-                Some(id) => { self.strip.col_of.insert(h, id); }
-                None => { self.strip.col_of.remove(&h); }
+                Some(id) => {
+                    self.strip.col_of.insert(h, id);
+                }
+                None => {
+                    self.strip.col_of.remove(&h);
+                }
             }
         }
         if let Some(id) = a_id {
@@ -4633,7 +4636,8 @@ fn scroll_anchor_strip_x(
 ) -> Option<i32> {
     let cols = ws.strip.columns(tiled);
     let (ci, _) = locate_tile(&cols, anchor)?;
-    let widths: Vec<f32> = ws.strip
+    let widths: Vec<f32> = ws
+        .strip
         .strip_cols(&cols, ws.focused, cfg.scroll_default_width)
         .iter()
         .map(|col| col.width)
@@ -4769,9 +4773,7 @@ fn scroll_slot_swap_allowed(
         return false;
     };
     let q = (target_rect.right - target_rect.left) / 4;
-    source_col != target_col
-        && pt.x >= target_rect.left + q
-        && pt.x < target_rect.right - q
+    source_col != target_col && pt.x >= target_rect.left + q && pt.x < target_rect.right - q
 }
 
 /// A real drag released at the physical top edge maximizes the window. The
@@ -8545,8 +8547,7 @@ unsafe fn strip_reveal(mgr: &mut Manager, h: isize) {
         return;
     };
     if visibility == Vis::Full
-        || (visibility != Vis::Park
-            && scroll_slot_mostly_visible(slot, mgr.monitors[mi].work_area))
+        || (visibility != Vis::Park && scroll_slot_mostly_visible(slot, mgr.monitors[mi].work_area))
     {
         return;
     }
@@ -13148,18 +13149,23 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         && !scratch
                         && GetForegroundWindow() != hwnd;
                     let prev_focus = mgr.monitors[mi].workspaces[wi].focused;
-                    let anchored = if mgr.monitors[mi].layout == "scrolling"
-                        && !floating && !quiet && visible
-                    {
-                        let ws = &mgr.monitors[mi].workspaces[wi];
-                        let view_w = mgr.monitors[mi].work_area.right
-                            - mgr.monitors[mi].work_area.left;
-                        scroll_anchor_strip_x(
-                            ws, &scroll_layout_windows(ws), prev_focus, view_w, &mgr.cfg
-                        ).map(|x| (x, ws.strip.offset))
-                    } else {
-                        None
-                    };
+                    let anchored =
+                        if mgr.monitors[mi].layout == "scrolling" && !floating && !quiet && visible
+                        {
+                            let ws = &mgr.monitors[mi].workspaces[wi];
+                            let view_w =
+                                mgr.monitors[mi].work_area.right - mgr.monitors[mi].work_area.left;
+                            scroll_anchor_strip_x(
+                                ws,
+                                &scroll_layout_windows(ws),
+                                prev_focus,
+                                view_w,
+                                &mgr.cfg,
+                            )
+                            .map(|x| (x, ws.strip.offset))
+                        } else {
+                            None
+                        };
                     let (at, tab_target) =
                         if mgr.monitors[mi].layout == "scrolling" && !floating && !quiet && visible
                         {
@@ -13198,14 +13204,18 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     // position of the user's pre-existing anchor.
                     if let Some((before_x, before_offset)) = anchored {
                         if at.is_some() {
-                            let view_w = mgr.monitors[mi].work_area.right
-                                - mgr.monitors[mi].work_area.left;
+                            let view_w =
+                                mgr.monitors[mi].work_area.right - mgr.monitors[mi].work_area.left;
                             let ws = &mut mgr.monitors[mi].workspaces[wi];
                             if let Some(after_x) = scroll_anchor_strip_x(
-                                ws, &scroll_layout_windows(ws), prev_focus, view_w, &mgr.cfg
+                                ws,
+                                &scroll_layout_windows(ws),
+                                prev_focus,
+                                view_w,
+                                &mgr.cfg,
                             ) {
-                                ws.strip.offset = before_offset
-                                    .saturating_add(after_x.saturating_sub(before_x));
+                                ws.strip.offset =
+                                    before_offset.saturating_add(after_x.saturating_sub(before_x));
                                 // A queued foreground echo of this very new
                                 // window may arrive after placement. It must
                                 // not undo the focused anchor's stable view.
@@ -13807,13 +13817,16 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         let ws = &mut mgr.monitors[mi].workspaces[wi];
                         if ws.focused == h {
                             let cols = ws.strip.columns(&scroll_layout_windows(ws));
-                            let live: Vec<isize> = ws.windows
+                            let live: Vec<isize> = ws
+                                .windows
                                 .iter()
                                 .copied()
-                                .filter(|w| !ws.floating.contains(w)
-                                    && *w != h
-                                    && IsWindow(hwnd_from(*w)).as_bool()
-                                    && !IsIconic(hwnd_from(*w)).as_bool())
+                                .filter(|w| {
+                                    !ws.floating.contains(w)
+                                        && *w != h
+                                        && IsWindow(hwnd_from(*w)).as_bool()
+                                        && !IsIconic(hwnd_from(*w)).as_bool()
+                                })
                                 .collect();
                             if let Some(next) = scroll_minimize_successor(&cols, h, &live) {
                                 ws.focused = next;
@@ -30647,7 +30660,10 @@ mod tests {
         assert_eq!(scroll_anchor_strip_x(&ws, &[A, B], B, w, &cfg), original_x);
         assert_eq!(cols, vec![vec![A], vec![B]]);
         assert_eq!(scroll_minimize_successor(&cols, A, &[]), None);
-        assert_eq!(scroll_minimize_successor(&[vec![A, C], vec![B]], A, &[B, C]), Some(C));
+        assert_eq!(
+            scroll_minimize_successor(&[vec![A, C], vec![B]], A, &[B, C]),
+            Some(C)
+        );
     }
 
     #[test]
@@ -30673,7 +30689,10 @@ mod tests {
         ws.focused = C;
         let after = scroll_anchor_strip_x(&ws, &[A, B, C], A, w, &cfg).unwrap();
         ws.strip.offset = 24 + (after - before);
-        assert_eq!(ws.strip.offset, 24, "inserting into slot B must not shift A");
+        assert_eq!(
+            ws.strip.offset, 24,
+            "inserting into slot B must not shift A"
+        );
         assert_eq!(ws.strip.columns(&[A, B, C]), vec![vec![A], vec![B, C]]);
     }
 
