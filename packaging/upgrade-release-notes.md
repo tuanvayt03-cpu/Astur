@@ -1,3 +1,27 @@
+# Astur VI Update 2.4.0.14 (Preview) — In-place Windows update
+
+**Source branch:** `release/astur-vi-update-2.4.0.14`, built from `feat/slot-anchor-placement-20261105` at `af4fd2d` (Window Policy Engine PR #7 + slot-anchor PR #8). The release tag is immutable and must match the precise build SHA.
+
+## New in 2.4.0.14
+
+- **Focus-anchored scrolling admission:** a newly opened window fills a free viewport slot first. When the viewport is occupied, it uses a tab in the previously focused **other** visible slot (N-1); the currently focused slot stays anchored. Existing windows remain managed and can be selected again, not forcibly minimized or closed.
+- **Freely drag windows across slots:** Alt+left-drag or native title-bar drag works within a monitor, not just across monitors. Dropping at the center of an independent column swaps positions, including non-adjacent columns; left/right/below drop zones retain their established behavior.
+- **Drag to top edge to maximize:** a real drag ending at the physical top edge of the destination display invokes Windows maximize for eligible windows, even on displays with negative virtual-screen coordinates. A stationary click, resize or unsupported window does not trigger it. Windows-native F11/maximized windows remain separate from tiling.
+- Retains **Window Policy Engine v1**, background-spawn protections, Zalo notification exclusions, click-through overlays, VI/EN Settings, and the existing single-monitor/multi-monitor functionality.
+- **In-place update with rollback:** same AppId and original installation directory. Preserve the first-upgrade snapshot and create a new before-2.4.0.14 backup of existing binaries and available user configuration. Neither backup is overwritten on a repeat installation.
+
+## Verification and limitations
+
+- Windows CI must pass Rustfmt, Clippy with warnings denied, full unit tests, bilingual Settings offscreen renders, x64 release build, Inno Setup, original-AppId upgrade/rollback/uninstall smoke, and SHA256 generation **before** GitHub prerelease publication.
+- **Desktop live acceptance still pending.** Synthetic unit tests and isolated runner tests are not proof that one/two-monitor dragging, 1/2 or 1/5 slot placement, native maximize/F11 and actual Zalo/MT5 behavior work without regression on the user's own desktop.
+- This is an **unsigned experimental prerelease**, not an official upstream stable release. Close the running Astur before upgrading. Do not disable Windows Defender/SmartScreen to run the installer.
+- Source: https://github.com/tuanvayt03-cpu/Astur
+- Follow-up source reviews: PR #7 and PR #8.
+
+---
+
+## Previous 2.4.0.13 release notes
+
 # Astur VI Update 2.4.0.13 — experimental in-place upgrade
 
 **Build source:** `release/astur-vi-update-2.4.0.13`, based on `d55ca1a`.
