@@ -13553,7 +13553,13 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
             // App button clicked: focus that window (same effect as clicking
             // it, so a parked strip tile scrolls into view first).
             if IsWindow(hwnd_from(h)).as_bool() {
-                let restored = IsIconic(hwnd_from(h)).as_bool();
+                // The bar can refer to windows from other workspaces. Never
+                // restore one onto the currently shown desktop before its
+                // own workspace is switched in by the activation path.
+                let active_here = mgr
+                    .locate(h)
+                    .is_some_and(|(mi, wi)| wi == mgr.monitors[mi].active);
+                let restored = active_here && IsIconic(hwnd_from(h)).as_bool();
                 if restored {
                     let _ = ShowWindow(hwnd_from(h), SW_RESTORE);
                 }
@@ -29899,6 +29905,19 @@ mod tests {
         ws.strip.note_focus(B);
         assert!(!slot_member_was_parked(&ws.strip, &[A, B, C], B));
         assert_eq!(ws.strip.hidden_tabs(&[A, B, C], B), vec![C]);
+    }
+
+    #[test]
+    fn a_single_explicit_tab_cannot_create_an_orphan_title_bar() {
+        let cfg = Config::defaults();
+        let mut ws = strip_ws(&[A], &[]);
+        ws.strip.toggle_tabbed(A, cfg.scroll_default_width);
+        assert!(ws.strip.col_meta(&[A]).unwrap().tabbed);
+        let area = rect(0, 0, 1000, 700);
+        let out = strip_out(&ws.strip, &[A], A, area, &cfg, 26);
+        assert!(out.tab_bars.iter().all(Option::is_none));
+        assert_eq!(out.tiles.len(), 1);
+        assert_eq!(out.tiles[0].top, cfg.outer_gap);
     }
 
     #[test]

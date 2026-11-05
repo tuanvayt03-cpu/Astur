@@ -253,9 +253,13 @@ own strip and scroll position.
 - **Stacking** — `Alt+[` / `Alt+]` pull the window into the column on the left /
   right, or push it back out into its own column if it already shares one. Windows
   in a column split its height; `Alt+Shift+R` cycles `scroll_height_presets`.
-- **Tabbed columns** — `Alt+Shift+T` shows a column's windows as tabs, one at a
-  time under a tab bar (`tab_bar_height`): app icon and title per tab, click to
-  switch, Alt-drag the bar to move the column.
+- **Tabbed columns** — `Alt+Shift+T` manually shows a column's windows as tabs,
+  one at a time under a tab bar (`tab_bar_height`): app icon and title per tab,
+  click to switch, Alt-drag the bar to move the column. A single window never
+  shows an empty Astur tab bar. Opening another window when all visible slots
+  are occupied instead uses **automatic slot stacking** in a non-focused slot,
+  without switching on the manual tab bar. The previous occupant stays managed
+  and is recoverable by taskbar or Alt+Tab activation.
 - **Peek and park** — a column partly past the screen edge **peeks** in only where
   no other monitor is on that side. Otherwise, and when fully off screen, it is
   **parked** outside the whole virtual screen, so it never bleeds onto a
