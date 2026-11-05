@@ -1,3 +1,28 @@
+# Astur VI Update 2.4.0.17 (Preview) — Direct cross-monitor slots + taskbar recovery
+
+**Source baseline:** `ff315dd497efd9a26d657713c4b81467ce6e2e06`, branch `fix/astur-cross-monitor-telegram-20261105`, draft PR #11. Release branch/tag must resolve to one exact commit. Prior release 2.4.0.16 and its assets must remain unchanged.
+
+## New in 2.4.0.17
+
+- **Cross-monitor, slot-to-slot direct drag:** In a two-display four-slot layout, drop 4→2, 1→3, 1→4, or 3→2 using the mouse location on the target screen. Occupied scrolling slots exchange both HWND owners together, maintaining both monitor offsets and column metadata, without transiently recentering the destination on slot 1. Existing insertion rules remain for vacant/edge destinations.
+- **Telegram taskbar activation:** A repeated foreground event for a managed HWND still physically parked, Astur-hidden, or minimized is now handled as recovery rather than blindly filtered out. A guarded SHOW on an already tracked, parked foreground HWND also invokes recovery; synthetic foreground echo can retile without recentering.
+- **No new auto-tab UI:** This builds on the automatic slot stack / manual tab separation delivered in 2.4.0.16. User-requested tab mode and single Explorer tab bar visibility remain independent.
+- **Additional source tests:** two monitors with four windows and nonadjacent swaps, tabbed column metadata, no window loss/duplication, duplicate foreground recovery.
+- **Private evidence:** a 53.63-second screen recording was analyzed within the user conversation but not uploaded to GitHub.
+
+## Gates and rollout
+
+- Source CI on exact `ff315dd` commit: https://github.com/tuanvayt03-cpu/Astur/actions/runs/42020494791 (PASS: rustfmt, Clippy, all Rust unit tests, release build, portable preview).
+- Dedicated 2.4.0.17 Windows update workflow must PASS bilingual Settings render, original-AppId update/backup/uninstall smoke, installer build, checksum and prerelease publication on the release commit before the update can be distributed.
+- **Live desktop acceptance still PENDING:** source and isolated Windows CI cannot establish one-click Telegram recovery or smooth cross-monitor dragging on the user's physical displays. This is a prerelease, not stable. Quit running Astur before installing, do not run two managers together, never bypass OS warnings, and avoid testing with active MT5 trading windows.
+- Version 2.4.0.16 remains available for rollback. Preserve first-original backup and the immediately previous installation snapshot.
+
+Implementation, reproduction and acceptance: `docs/vi/TELEGRAM_TASKBAR_CROSS_MONITOR_SLOT_20261105.md`. Draft PR: https://github.com/tuanvayt03-cpu/Astur/pull/11
+
+---
+
+## Previous release: 2.4.0.16
+
 # Astur VI Update 2.4.0.16 (Preview) — Auto Slot Stack without unwanted tabs
 
 Source baseline: `d857e72fb7a547e6d4559a4e86e45d3220076da7` on `fix/astur-auto-slot-separate-20261105`, building on Astur VI 2.4.0.15. Final release tag must point to the exact committed release branch head.

@@ -1,4 +1,4 @@
-ASTUR VI UPDATE 2.4.0.16 (PREVIEW)
+ASTUR VI UPDATE 2.4.0.17 (PREVIEW)
 
 This installer UPDATES your existing Astur installation IN PLACE.
 It is an experimental community fork, NOT an official stable upstream release.
@@ -17,12 +17,25 @@ Astur.exe, astur-settings.exe, astur.conf and navbar.conf (when available).
 First original snapshot:
 %LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.1
 Immediately previous installation:
-%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.16
+%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.17
 These snapshots are never overwritten on a repeat update.
 To roll back: quit Astur, restore the saved binaries/config, or reinstall
 the previously used installer. Keep the other manager stopped.
 
-NEW IN 2.4.0.16
+NEW IN 2.4.0.17
+- Direct cross-monitor drop: with two screens and four visible tiles, drop
+  4 onto 2, 1 onto 3/4 or 3 onto 2 without transiently landing in slot 1.
+  When both slots are occupied, exchange window ownership in one operation;
+  keep slot widths, tab mode, group metadata and scrolling offsets.
+- A Telegram/taskbar foreground retry is no longer rejected as a duplicate
+  when the managed window is still parked outside every display, iconic or
+  hidden by Astur. A guarded SHOW event and synthetic focus recovery can
+  trigger a physical retile without shifting the viewport.
+- This remains an EXPERIMENTAL preview. One-click taskbar recovery and
+  cross-display dragging need real multi-monitor interactive acceptance
+  before declaring the issues fully resolved.
+
+RETAINED FROM 2.4.0.16
 - A new window fills an empty visible slot first; if all visible slots are
   full, it uses the previously focused OTHER slot (layer N-1), keeping the
   active anchor in place. The older occupant stays managed, not minimized.
