@@ -5186,8 +5186,7 @@ impl Manager {
     /// to the slot positions. Only HWND ownership and active occupants move.
     /// Both original HWNDs remain managed and visible on their new monitors.
     fn exchange_cross_monitor_slots(&mut self, h: isize, t: isize) -> bool {
-        let (Some((from_mi, from_wi)), Some((to_mi, to_wi))) =
-            (self.locate(h), self.locate(t))
+        let (Some((from_mi, from_wi)), Some((to_mi, to_wi))) = (self.locate(h), self.locate(t))
         else {
             return false;
         };
@@ -14243,8 +14242,7 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 } else {
                     None
                 };
-                let exchanged = swap_target
-                    .is_some_and(|t| mgr.exchange_cross_monitor_slots(h, t));
+                let exchanged = swap_target.is_some_and(|t| mgr.exchange_cross_monitor_slots(h, t));
                 if !exchanged {
                     // Edge/no-target drops preserve the Niri insertion rule.
                     // A drop INSIDE a destination slot always consumes that
