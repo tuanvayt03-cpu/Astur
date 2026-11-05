@@ -4638,23 +4638,21 @@ fn scroll_anchor_admission(
     let predecessor_col = previous
         .and_then(|h| locate_tile(&cols, h).map(|(ci, _)| ci))
         .filter(|&ci| ci != anchor && visible.iter().any(|(v, _)| *v == ci));
-    let replacement = predecessor_col
-        .map(|ci| cols[ci][0])
-        .or_else(|| {
-            visible
-                .iter()
-                .filter(|(ci, _)| *ci != anchor)
-                .min_by_key(|(_, r)| {
-                    let x = (r.left as i64 + r.right as i64) / 2;
-                    let on_other_side = if prefer_right {
-                        x > anchor_x
-                    } else {
-                        x < anchor_x
-                    };
-                    (!on_other_side, (x - anchor_x).abs())
-                })
-                .map(|(ci, _)| cols[*ci][0])
-        });
+    let replacement = predecessor_col.map(|ci| cols[ci][0]).or_else(|| {
+        visible
+            .iter()
+            .filter(|(ci, _)| *ci != anchor)
+            .min_by_key(|(_, r)| {
+                let x = (r.left as i64 + r.right as i64) / 2;
+                let on_other_side = if prefer_right {
+                    x > anchor_x
+                } else {
+                    x < anchor_x
+                };
+                (!on_other_side, (x - anchor_x).abs())
+            })
+            .map(|(ci, _)| cols[*ci][0])
+    });
     match replacement {
         Some(target) => (Some(DropAt::Below(target)), Some(target)),
         // An intentionally full-width single column is the only slot. Keep
