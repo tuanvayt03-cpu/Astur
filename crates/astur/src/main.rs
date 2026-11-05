@@ -4064,6 +4064,48 @@ impl Workspace {
         }
     }
 
+    /// Exchange two visible tiles across scrolling columns without destroying
+    /// either column's identity. This permits dragging the active tab OUT of a
+    /// tabbed slot, unlike the old one-window-column-only swap. Width and tab
+    /// metadata belong to *positions*, not to the HWND that moved out.
+    fn swap_slot_occupants(&mut self, tiled: &[isize], from: isize, to: isize) -> bool {
+        let cols = self.strip.columns(tiled);
+        let (Some((a, _)), Some((b, _))) =
+            (locate_tile(&cols, from), locate_tile(&cols, to))
+        else {
+            return false;
+        };
+        if a == b {
+            return false;
+        }
+        let Some(ia) = self.windows.iter().position(|&w| w == from) else {
+            return false;
+        };
+        let Some(ib) = self.windows.iter().position(|&w| w == to) else {
+            return false;
+        };
+        let a_id = self.strip.col_of.get(&from).copied();
+        let b_id = self.strip.col_of.get(&to).copied();
+        self.windows.swap(ia, ib);
+        for (h, new_id) in [(from, b_id), (to, a_id)] {
+            match new_id {
+                Some(id) => { self.strip.col_of.insert(h, id); }
+                None => { self.strip.col_of.remove(&h); }
+            }
+        }
+        if let Some(id) = a_id {
+            if self.strip.cols.get(&id).is_some_and(|m| m.active == from) {
+                self.strip.cols.get_mut(&id).unwrap().active = to;
+            }
+        }
+        if let Some(id) = b_id {
+            if self.strip.cols.get(&id).is_some_and(|m| m.active == to) {
+                self.strip.cols.get_mut(&id).unwrap().active = from;
+            }
+        }
+        true
+    }
+
     /// Where focus goes when `h` leaves the strip: the next tile of its column
     /// (the previous one when it was the bottom tile), else the column to the
     /// left, else the one to the right, each at its last-focused tile.
@@ -4188,6 +4230,9 @@ struct Strip {
     cols: HashMap<u32, ColMeta>,  // column id -> metadata (missing = defaults)
     weights: HashMap<isize, f32>, // window -> height weight in its column (missing = 1.0)
     next_id: u32,
+    // Windows focuses a surviving tile as part of minimize. For that one
+    // synthetic foreground transition, don't scroll the stable slot strip.
+    synthetic_reveal_guard: Option<(isize, u64)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -4575,6 +4620,29 @@ fn column_target(from: Option<usize>, n: i32, len: usize) -> Option<usize> {
     (Some(to) != from).then_some(to)
 }
 
+/// Strip-space position of a column, independent from focus and the
+/// viewport offset. Inserting a new column before the anchor changes this
+/// position: compensate the offset by the exact delta to keep the anchor's
+/// on-screen X fixed. Inserting a tab changes it by zero.
+fn scroll_anchor_strip_x(
+    ws: &Workspace,
+    tiled: &[isize],
+    anchor: isize,
+    view_w: i32,
+    cfg: &Config,
+) -> Option<i32> {
+    let cols = ws.strip.columns(tiled);
+    let (ci, _) = locate_tile(&cols, anchor)?;
+    let widths: Vec<f32> = ws.strip
+        .strip_cols(&cols, ws.focused, cfg.scroll_default_width)
+        .iter()
+        .map(|col| col.width)
+        .collect();
+    strip_spans(view_w, &widths, cfg.outer_gap, cfg.inner_gap)
+        .get(ci)
+        .map(|span| span.0)
+}
+
 /// Choose where a newly opened window joins a scrolling workspace without
 /// shifting the column the user was working in. Use genuinely unoccupied
 /// viewport space first. Once the view is full, put the newcomer into a tab
@@ -4661,7 +4729,27 @@ fn scroll_anchor_admission(
     }
 }
 
-/// A center-drop can exchange any two independent scrolling slots, not
+/// After minimizing the focused tile, prefer another live tab in its own
+/// column, then the nearest surviving visible column. Minimized HWNDs still
+/// reserve geometry, but must not become the shown tab/focus target.
+fn scroll_minimize_successor(
+    cols: &[Vec<isize>],
+    minimized: isize,
+    live: &[isize],
+) -> Option<isize> {
+    let (ci, _) = locate_tile(cols, minimized)?;
+    if let Some(&h) = cols[ci].iter().find(|h| live.contains(h)) {
+        return Some(h);
+    }
+    cols.iter()
+        .enumerate()
+        .filter(|(i, _)| *i != ci)
+        .filter_map(|(i, c)| c.iter().copied().find(|h| live.contains(h)).map(|h| (i, h)))
+        .min_by_key(|(i, _)| i.abs_diff(ci))
+        .map(|(_, h)| h)
+}
+
+/// A center-drop can exchange tiles, even when a column is tabbed, not
 /// just adjacent ones. Edges keep their explicit strip insertion semantics.
 /// Multi-tile columns remain intact; those are moved through the existing
 /// before/after/below drop zones rather than silently splitting a tab group.
@@ -4682,8 +4770,6 @@ fn scroll_slot_swap_allowed(
     };
     let q = (target_rect.right - target_rect.left) / 4;
     source_col != target_col
-        && cols[source_col].len() == 1
-        && cols[target_col].len() == 1
         && pt.x >= target_rect.left + q
         && pt.x < target_rect.right - q
 }
@@ -6233,6 +6319,32 @@ unsafe fn window_under_point(mgr: &Manager, mi: usize, pt: POINT, exclude: isize
     None
 }
 
+/// Resolve a scrolling drop from the manager's intended slot geometry.
+/// GetWindowRect during an interactive drag describes the moving source and
+/// possibly still-animating targets, not the slot the user pointed at.
+/// The layout is stable until the drop commits. Inactive tabs, minimized
+/// surfaces and parked off-monitor columns cannot intercept a drop.
+unsafe fn scroll_window_under_layout(
+    mgr: &Manager,
+    mi: usize,
+    pt: POINT,
+    exclude: isize,
+) -> Option<isize> {
+    let wi = mgr.monitors[mi].active;
+    let map = PlaceMap::new(mgr, mi, wi);
+    workspace_layout(mgr, mi, wi)
+        .into_iter()
+        .find(|(h, r)| {
+            *h != exclude
+                && map.vis(*h, *r) != Vis::Park
+                && pt.x >= r.left
+                && pt.x < r.right
+                && pt.y >= r.top
+                && pt.y < r.bottom
+        })
+        .map(|(h, _)| h)
+}
+
 /// HMONITOR currently under the cursor, or 0 if it can't be read. Used to land a
 /// launched terminal/browser on the workspace the cursor is on.
 unsafe fn cursor_hmon() -> isize {
@@ -7313,9 +7425,21 @@ unsafe fn place_slot(h: isize, raw: RECT, map: &PlaceMap) -> RECT {
     to
 }
 
-/// The windows workspace_layout tiles, in order: alive, not floating, not
-/// minimised. A scrolling column is a run of these (Strip), so every strip
-/// op takes this list.
+/// A scrolling workspace reserves column geometry while an app is minimized.
+/// The traditional tiled_windows() list intentionally omits iconic HWNDs,
+/// which is correct for non-scrolling layouts but shifts every scrolling
+/// column left when its first tile minimizes. Keep live, non-floating HWNDs
+/// in the *layout* strip and filter iconic HWNDs only at actual placement.
+unsafe fn scroll_layout_windows(ws: &Workspace) -> Vec<isize> {
+    ws.windows
+        .iter()
+        .copied()
+        .filter(|h| IsWindow(hwnd_from(*h)).as_bool() && !ws.floating.contains(h))
+        .collect()
+}
+
+/// The windows workspace_layout tiles in other layouts: alive, not floating,
+/// not minimized. Only scrolling uses scroll_layout_windows as slot occupants.
 unsafe fn tiled_windows(ws: &Workspace) -> Vec<isize> {
     ws.windows
         .iter()
@@ -7361,7 +7485,7 @@ impl PlaceMap {
             hidden: mon
                 .workspaces
                 .get(wi)
-                .map(|ws| ws.strip.hidden_tabs(&tiled_windows(ws), ws.focused))
+                .map(|ws| ws.strip.hidden_tabs(&scroll_layout_windows(ws), ws.focused))
                 .unwrap_or_default(),
         }
     }
@@ -7424,7 +7548,7 @@ unsafe fn ensure_visible(mgr: &mut Manager, mi: usize, wi: usize) {
     let mode = center_mode(&mgr.cfg.scroll_center);
     if let Some(off) = strip_show_offset(
         &ws.strip,
-        &tiled_windows(ws),
+        &scroll_layout_windows(ws),
         ws.focused,
         view_w,
         &mgr.cfg,
@@ -7456,7 +7580,11 @@ unsafe fn workspace_layout(mgr: &Manager, mi: usize, wi: usize) -> Vec<(isize, R
     let Some(ws) = mon.workspaces.get(wi) else {
         return Vec::new();
     };
-    let tiled = tiled_windows(ws);
+    let tiled = if mon.layout == "scrolling" {
+        scroll_layout_windows(ws)
+    } else {
+        tiled_windows(ws)
+    };
     // The WinEvent recheck is asynchronous. A user may maximize while an
     // unrelated retile is already queued: omit that native fullscreen surface
     // from placement immediately, before any SW_RESTORE or SetWindowPos, even
@@ -7501,7 +7629,11 @@ unsafe fn workspace_layout(mgr: &Manager, mi: usize, wi: usize) -> Vec<(isize, R
     if rects.len() < n {
         return Vec::new();
     }
-    tiled.into_iter().zip(rects).collect()
+    tiled
+        .into_iter()
+        .zip(rects)
+        .filter(|(h, _)| !IsIconic(hwnd_from(*h)).as_bool())
+        .collect()
 }
 
 /// Tile a single monitor's active workspace on that monitor's work area,
@@ -7861,7 +7993,7 @@ unsafe fn motion_extras(
         // command (its no-tabs check included): a bar's last frame is where
         // (and how wide) it lands.
         let (cols, slots) = if ws.strip.cols.values().any(|c| c.tabbed) {
-            let tiled = tiled_windows(ws);
+            let tiled = scroll_layout_windows(ws);
             let cols = ws.strip.columns(&tiled);
             let tab_h = dpi_px(mgr.cfg.tab_bar_height, dpi);
             let out = strip_out(
@@ -8388,9 +8520,18 @@ unsafe fn tile_slot(mgr: &Manager, h: isize) -> Option<(RECT, Vis)> {
     Some((raw, PlaceMap::new(mgr, mi, wi).vis(h, raw)))
 }
 
-/// Scroll `h`'s tile fully into view when it sits on an ACTIVE scrolling
-/// workspace and is not Full: a click on a peeking window, a parked one
-/// picked from the taskbar or Alt+Tab, an app activating itself
+/// A column that is already mostly visible should not jump/recenter just
+/// because its invisible border or an inner gap was clipped by a few pixels.
+/// Such edge clipping is normal with two nominal half-screen columns.
+fn scroll_slot_mostly_visible(slot: RECT, view: RECT) -> bool {
+    let width = (slot.right - slot.left).max(1) as i64;
+    let overlap = (slot.right.min(view.right) - slot.left.max(view.left)).max(0) as i64;
+    overlap * 4 >= width * 3
+}
+
+/// Scroll `h`'s tile back into view when it sits on an ACTIVE scrolling
+/// workspace and is substantially offscreen: a taskbar/Alt+Tab activation,
+/// or a click on a peeking window, or an app activating itself
 /// (plan/scrolling.md "Focus"). `h` becomes that workspace's focus first, so
 /// the strip scrolls to it and a hidden tab shows. The retile is the
 /// animated one. A cheap no-op on every other layout.
@@ -8400,7 +8541,13 @@ unsafe fn strip_reveal(mgr: &mut Manager, h: isize) {
     }) else {
         return;
     };
-    if tile_slot(mgr, h).is_none_or(|(_, v)| v == Vis::Full) {
+    let Some((slot, visibility)) = tile_slot(mgr, h) else {
+        return;
+    };
+    if visibility == Vis::Full
+        || (visibility != Vis::Park
+            && scroll_slot_mostly_visible(slot, mgr.monitors[mi].work_area))
+    {
         return;
     }
     mgr.monitors[mi].workspaces[wi].focused = h;
@@ -13001,6 +13148,18 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         && !scratch
                         && GetForegroundWindow() != hwnd;
                     let prev_focus = mgr.monitors[mi].workspaces[wi].focused;
+                    let anchored = if mgr.monitors[mi].layout == "scrolling"
+                        && !floating && !quiet && visible
+                    {
+                        let ws = &mgr.monitors[mi].workspaces[wi];
+                        let view_w = mgr.monitors[mi].work_area.right
+                            - mgr.monitors[mi].work_area.left;
+                        scroll_anchor_strip_x(
+                            ws, &scroll_layout_windows(ws), prev_focus, view_w, &mgr.cfg
+                        ).map(|x| (x, ws.strip.offset))
+                    } else {
+                        None
+                    };
                     let (at, tab_target) =
                         if mgr.monitors[mi].layout == "scrolling" && !floating && !quiet && visible
                         {
@@ -13013,7 +13172,7 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                                 .find(|w| *w != prev_focus && ws.windows.contains(w));
                             scroll_anchor_admission(
                                 ws,
-                                &tiled_windows(ws),
+                                &scroll_layout_windows(ws),
                                 mgr.monitors[mi].work_area,
                                 &mgr.cfg,
                                 previous,
@@ -13031,6 +13190,29 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         let col = ws.strip.col_mut(target, default);
                         col.tabbed = true;
                         col.active = h;
+                    }
+                    // Manager::insert_window originally ensured visibility
+                    // before the tab was finalized, scrolling the previous
+                    // active column out of the viewport. Reconcile the view
+                    // only after admission, preserving the exact strip-space
+                    // position of the user's pre-existing anchor.
+                    if let Some((before_x, before_offset)) = anchored {
+                        if at.is_some() {
+                            let view_w = mgr.monitors[mi].work_area.right
+                                - mgr.monitors[mi].work_area.left;
+                            let ws = &mut mgr.monitors[mi].workspaces[wi];
+                            if let Some(after_x) = scroll_anchor_strip_x(
+                                ws, &scroll_layout_windows(ws), prev_focus, view_w, &mgr.cfg
+                            ) {
+                                ws.strip.offset = before_offset
+                                    .saturating_add(after_x.saturating_sub(before_x));
+                                // A queued foreground echo of this very new
+                                // window may arrive after placement. It must
+                                // not undo the focused anchor's stable view.
+                                ws.strip.synthetic_reveal_guard =
+                                    Some((h, GetTickCount64().saturating_add(900)));
+                            }
+                        }
                     }
                     // A delayed SHOW may adopt a restored independent window
                     // before its MINIMIZEEND probe: avoid stale membership.
@@ -13166,10 +13348,18 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 mgr.focused_mon = mi;
                 if wi == mgr.monitors[mi].active {
                     mgr.monitors[mi].workspaces[wi].focused = h;
-                    // A clicked peeking tile, a parked one picked from the
-                    // taskbar or Alt+Tab: scroll it into view. Our own
-                    // focus_window echoes find it Full and do nothing.
-                    strip_reveal(mgr, h);
+                    // The system foreground transition caused by minimizing
+                    // another slot must not move the survivor's column into
+                    // the first slot. This guard is single-use and expires;
+                    // later user clicks/taskbar/Alt+Tab can still reveal.
+                    let skip_reveal = mgr.monitors[mi].workspaces[wi]
+                        .strip
+                        .synthetic_reveal_guard
+                        .take()
+                        .is_some_and(|(w, until)| w == h && GetTickCount64() <= until);
+                    if !skip_reveal {
+                        strip_reveal(mgr, h);
+                    }
                 } else {
                     // The OS foregrounded a window on a hidden workspace (an app
                     // activated it — link opened in the browser, taskbar click).
@@ -13606,10 +13796,34 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
         // from now on queues exactly one more refresh.
         Cmd::BarRefresh => bar_refresh_clear(&BAR_REFRESH_QUEUED),
         Cmd::RetileFor(h) => {
-            // A minimise (this command's MINIMIZESTART) drops the window's
-            // DWM surface: cold until it is placed on screen again.
-            if IsIconic(hwnd_from(h)).as_bool() {
+            // A minimize is NOT a column removal. Leave the scrolling strip's
+            // viewport offset intact; only the HWND surface disappears.
+            // Otherwise ensure_visible would pull the next column to slot 1.
+            let minimizing = IsIconic(hwnd_from(h)).as_bool();
+            if minimizing {
                 warm_forget(h);
+                if let Some((mi, wi)) = mgr.locate(h) {
+                    if mgr.monitors[mi].layout == "scrolling" {
+                        let ws = &mut mgr.monitors[mi].workspaces[wi];
+                        if ws.focused == h {
+                            let cols = ws.strip.columns(&scroll_layout_windows(ws));
+                            let live: Vec<isize> = ws.windows
+                                .iter()
+                                .copied()
+                                .filter(|w| !ws.floating.contains(w)
+                                    && *w != h
+                                    && IsWindow(hwnd_from(*w)).as_bool()
+                                    && !IsIconic(hwnd_from(*w)).as_bool())
+                                .collect();
+                            if let Some(next) = scroll_minimize_successor(&cols, h, &live) {
+                                ws.focused = next;
+                                ws.strip.note_focus(next);
+                                ws.strip.synthetic_reveal_guard =
+                                    Some((next, GetTickCount64().saturating_add(900)));
+                            }
+                        }
+                    }
+                }
             }
             // Resolved now, not when the event fired: commands queued ahead
             // of this one (MoveToWs, Remove, a switch) can move h.
@@ -13619,10 +13833,13 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 |mi, wi| mgr.monitors[mi].workspaces[wi].floating.contains(&h),
             );
             if let Some(mi) = target {
-                // The strip shrank or grew under the offset: keep the focused
-                // column in view, as every membership change does.
+                // Minimize preserves the column's reserved slot. Scrolling
+                // the newly focused survivor here would incorrectly pull its
+                // column left; a later explicit focus/navigation may scroll.
                 let a = mgr.monitors[mi].active;
-                ensure_visible(mgr, mi, a);
+                if !(minimizing && mgr.monitors[mi].layout == "scrolling") {
+                    ensure_visible(mgr, mi, a);
+                }
                 retile_monitor(mgr, mi);
             }
         }
@@ -13728,7 +13945,11 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
             }
             let pt = POINT { x, y };
             let to_mi = monitor_index_for_point(mgr, pt);
-            let target = window_under_point(mgr, to_mi, pt, h);
+            let target = if mgr.monitors[to_mi].layout == "scrolling" {
+                scroll_window_under_layout(mgr, to_mi, pt, h)
+            } else {
+                window_under_point(mgr, to_mi, pt, h)
+            };
             // Dropped on a scrolling monitor: a drop zone (plan/scrolling.md
             // "Keys"), which part of a window it landed on or which end of
             // the strip; None when it landed back in its own slot.
@@ -13738,7 +13959,7 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     .then(|| tile_slot(mgr, h))
                     .flatten()
                     .map(|(slot, _)| slot);
-                let on = target.map(|t| (t, window_rect_of(t)));
+                let on = target.and_then(|t| tile_slot(mgr, t).map(|(r, _)| (t, r)));
                 drop_zone(pt, on, own, mgr.monitors[to_mi].work_area)
             } else {
                 None
@@ -13748,20 +13969,11 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 // occupied slot, including non-adjacent columns. Edge drops
                 // retain the existing Niri-style before/after insertion.
                 let swapped = if let Some(t) = target {
-                    let tr = window_rect_of(t);
+                    let tr = tile_slot(mgr, t).map(|(r, _)| r).unwrap_or_default();
                     let ws = &mut mgr.monitors[from_mi].workspaces[from_a];
-                    if scroll_slot_swap_allowed(ws, &tiled_windows(ws), h, t, pt, tr) {
-                        let ia = ws.windows.iter().position(|&w| w == h);
-                        let ib = ws.windows.iter().position(|&w| w == t);
-                        if let (Some(ia), Some(ib)) = (ia, ib) {
-                            ws.windows.swap(ia, ib);
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
+                    let tiled = scroll_layout_windows(ws);
+                    scroll_slot_swap_allowed(ws, &tiled, h, t, pt, tr)
+                        && ws.swap_slot_occupants(&tiled, h, t)
                 } else {
                     false
                 };
@@ -13771,7 +13983,7 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         // toggle) through the move. A tile leaving a shared
                         // column starts at the default width, like an expel.
                         let ws = &mgr.monitors[from_mi].workspaces[from_a];
-                        let cols = ws.strip.columns(&tiled_windows(ws));
+                        let cols = ws.strip.columns(&scroll_layout_windows(ws));
                         let keep = locate_tile(&cols, h)
                             .filter(|&(ci, _)| cols[ci].len() == 1)
                             .and_then(|_| ws.strip.col_meta(&[h]).copied());
@@ -18205,7 +18417,7 @@ unsafe fn tab_bars_build(mgr: &Manager) -> Vec<TabBarData> {
         else {
             continue;
         };
-        let tiled = tiled_windows(ws);
+        let tiled = scroll_layout_windows(ws);
         let cols = ws.strip.columns(&tiled);
         let dpi = monitor_dpi(m.hmon);
         // The same physical height workspace_layout leaves room for.
@@ -30397,7 +30609,7 @@ mod tests {
             target
         ));
         let grouped = strip_ws(&[A, B, C, D], &[(B, 1), (C, 1)]);
-        assert!(!scroll_slot_swap_allowed(
+        assert!(scroll_slot_swap_allowed(
             &grouped,
             &[A, B, C, D],
             A,
@@ -30405,6 +30617,64 @@ mod tests {
             POINT { x: 800, y: 300 },
             target
         ));
+    }
+
+    #[test]
+    fn dragging_an_active_tab_between_slots_preserves_group_and_width_identity() {
+        let mut ws = strip_ws(&[A, B, C], &[(B, 1), (C, 1)]);
+        let meta = ws.strip.col_mut(B, 0.5);
+        meta.tabbed = true;
+        meta.active = C;
+        assert_eq!(ws.strip.columns(&[A, B, C]), vec![vec![A], vec![B, C]]);
+        assert!(ws.swap_slot_occupants(&[A, B, C], C, A));
+        assert_eq!(ws.windows, vec![C, B, A]);
+        assert_eq!(ws.strip.columns(&[C, B, A]), vec![vec![C], vec![B, A]]);
+        assert_eq!(ws.strip.col_meta(&[B, A]).unwrap().active, A);
+        assert_eq!(ws.strip.hidden_tabs(&[C, B, A], A), vec![B]);
+        assert!(!ws.swap_slot_occupants(&[C, B, A], B, A));
+    }
+
+    #[test]
+    fn minimizing_first_slot_does_not_collapse_second_slot_geometry() {
+        let cfg = Config::defaults();
+        let mut ws = strip_ws(&[A, B], &[]);
+        ws.focused = A;
+        let w = 1000;
+        let original_x = scroll_anchor_strip_x(&ws, &[A, B], B, w, &cfg);
+        let cols = ws.strip.columns(&[A, B]); // A still reserves a slot
+        assert_eq!(scroll_minimize_successor(&cols, A, &[B]), Some(B));
+        ws.focused = B;
+        assert_eq!(scroll_anchor_strip_x(&ws, &[A, B], B, w, &cfg), original_x);
+        assert_eq!(cols, vec![vec![A], vec![B]]);
+        assert_eq!(scroll_minimize_successor(&cols, A, &[]), None);
+        assert_eq!(scroll_minimize_successor(&[vec![A, C], vec![B]], A, &[B, C]), Some(C));
+    }
+
+    #[test]
+    fn mostly_visible_half_screen_column_does_not_recenter_on_focus() {
+        let view = rect(0, 0, 1000, 700);
+        assert!(scroll_slot_mostly_visible(rect(510, 0, 1010, 700), view));
+        assert!(scroll_slot_mostly_visible(rect(-10, 0, 490, 700), view));
+        assert!(!scroll_slot_mostly_visible(rect(950, 0, 1450, 700), view));
+        assert!(!scroll_slot_mostly_visible(rect(1100, 0, 1600, 700), view));
+    }
+
+    #[test]
+    fn adding_third_window_to_previous_slot_does_not_scroll_active_anchor() {
+        let mut cfg = Config::defaults();
+        cfg.scroll_default_width = 0.5;
+        let w = 1000;
+        let mut ws = strip_ws(&[A, B], &[]);
+        ws.focused = A;
+        ws.strip.offset = 24;
+        let before = scroll_anchor_strip_x(&ws, &[A, B], A, w, &cfg).unwrap();
+        ws.insert_in_strip(&[A, B], C, Some(DropAt::Below(B)));
+        ws.strip.col_mut(B, cfg.scroll_default_width).tabbed = true;
+        ws.focused = C;
+        let after = scroll_anchor_strip_x(&ws, &[A, B, C], A, w, &cfg).unwrap();
+        ws.strip.offset = 24 + (after - before);
+        assert_eq!(ws.strip.offset, 24, "inserting into slot B must not shift A");
+        assert_eq!(ws.strip.columns(&[A, B, C]), vec![vec![A], vec![B, C]]);
     }
 
     #[test]
