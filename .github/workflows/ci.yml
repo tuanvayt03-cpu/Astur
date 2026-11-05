@@ -64,6 +64,26 @@ jobs:
       - name: Build release
         run: cargo build --release --workspace
 
+      - name: Record slot-anchor preview provenance
+        if: github.head_ref == 'feat/slot-anchor-placement-20261105' || (github.event_name == 'push' && github.ref == 'refs/heads/feat/slot-anchor-placement-20261105')
+        shell: pwsh
+        run: |
+          "Commit: $env:GITHUB_SHA" | Set-Content target/release/SLOT_ANCHOR_BUILD_INFO.txt
+          "CI: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" | Add-Content target/release/SLOT_ANCHOR_BUILD_INFO.txt
+
+      - name: Upload slot-anchor portable preview
+        if: github.head_ref == 'feat/slot-anchor-placement-20261105' || (github.event_name == 'push' && github.ref == 'refs/heads/feat/slot-anchor-placement-20261105')
+        uses: actions/upload-artifact@v4
+        with:
+          name: Astur-SlotAnchor-Preview-${{ github.sha }}
+          path: |
+            target/release/astur.exe
+            target/release/astur-settings.exe
+            target/release/SLOT_ANCHOR_BUILD_INFO.txt
+            docs/vi/SLOT_ANCHOR_DRAG_TOP_2026-11-05.md
+          if-no-files-found: error
+          retention-days: 14
+
       # This is an explicit non-installer test artifact, not a GitHub Release.
       # Leave the user's installed window manager alone until the NCPC live
       # popup and mouse-input regression test proves the behavior.
