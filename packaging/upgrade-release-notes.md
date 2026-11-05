@@ -1,3 +1,28 @@
+# Astur VI Update 2.4.0.15 (Preview) — Stable scrolling slots
+
+**Source:** `release/astur-vi-update-2.4.0.15`, based on verified fix commit `1be70f95f376ece2ad6bb2f8f893cb6591c3d5fc` and the earlier 2.4.0.14 release. The release tag must match the final release branch commit exactly.
+
+## Fixes in 2.4.0.15
+
+- **Keep CS2 in its own slot when CS1 is minimized:** minimized windows remain geometric placeholders in scrolling mode. Win32 placement skips their minimized surfaces, but no longer collapses later columns to the left. Focus is reassigned to a live tab/column without forced viewport recentering.
+- **CS3 opens in a non-anchor slot:** preserve the original focused slot's strip-space location during admission; finalize the new tab before reconciling viewport offset. A short one-use guard prevents delayed automatic foreground events from moving the anchor again.
+- **Freely drag across CS1/CS2/CS3/CS4:** target selection uses Astur's stable layout rectangles rather than live Win32 animation rectangles. Center-drop swaps independently positioned or tabbed-window occupants, preserves column identity, per-slot width, tab memberships and last-active window; edge-drop still inserts before/after/below.
+- **Prevent focus jumps from tiny clipped edges:** a column still at least 75% visible is not automatically recentered simply because a few pixels are clipped by the viewport. Explicit scroll/focus hotkeys continue to work.
+- Retains 2.4.0.14 top-edge maximize, native title-bar drag, 1/2 and 1/5 width settings, Window Policy Engine, background spawn and Zalo exclusions.
+
+## Verification and risk
+
+- Fresh source Windows CI: https://github.com/tuanvayt03-cpu/Astur/actions/runs/41996637086 — PASS rustfmt, bilingual inventory, Clippy (-D warnings), all unit and new regression tests, x64 release build.
+- The dedicated update workflow must PASS the Windows installer compilation, upstream AppId in-place upgrade, preserved first and immediate pre-2.4.0.15 backups, uninstall smoke, checksum and GitHub prerelease publication.
+- **Real desktop UI acceptance is still pending:** unit tests and an isolated Windows runner do not establish that Chrome/MT5/Zalo, fullscreen, mouse drag, minimize and restore work in the user's active one/two-display environment. This is an unsigned experimental prerelease, not stable. Exit Astur before installing. Do not bypass Windows security warnings.
+- Previous GitHub releases and their assets are not overwritten; 2.4.0.14 remains a rollback option.
+
+Source issue & model/test contract: `docs/vi/STABLE_SLOT_ROOT_CAUSE_FIX_20261105.md`. Review: https://github.com/tuanvayt03-cpu/Astur/pull/9
+
+---
+
+## Previous release: 2.4.0.14
+
 # Astur VI Update 2.4.0.14 (Preview) — In-place Windows update
 
 **Source branch:** `release/astur-vi-update-2.4.0.14`, built from `feat/slot-anchor-placement-20261105` at `af4fd2d` (Window Policy Engine PR #7 + slot-anchor PR #8). The release tag is immutable and must match the precise build SHA.
