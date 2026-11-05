@@ -64,6 +64,29 @@ jobs:
       - name: Build release
         run: cargo build --release --workspace
 
+      # Portable QA binary for the cross-monitor/Telegram fix, not a release.
+      # Never install/launch this on top of the user's active MT5 desktop.
+      - name: Record cross-monitor Telegram preview provenance
+        if: github.head_ref == 'fix/astur-cross-monitor-telegram-20261105' || (github.event_name == 'push' && github.ref == 'refs/heads/fix/astur-cross-monitor-telegram-20261105')
+        shell: pwsh
+        run: |
+          "Commit: $env:GITHUB_SHA" | Set-Content target/release/CROSS_MONITOR_QA_BUILD_INFO.txt
+          "CI: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" | Add-Content target/release/CROSS_MONITOR_QA_BUILD_INFO.txt
+          "QA ONLY: stop any running Astur before testing on disposable windows." | Add-Content target/release/CROSS_MONITOR_QA_BUILD_INFO.txt
+
+      - name: Upload cross-monitor Telegram portable QA bundle
+        if: github.head_ref == 'fix/astur-cross-monitor-telegram-20261105' || (github.event_name == 'push' && github.ref == 'refs/heads/fix/astur-cross-monitor-telegram-20261105')
+        uses: actions/upload-artifact@v4
+        with:
+          name: Astur-CrossMonitor-Telegram-Preview-${{ github.sha }}
+          path: |
+            target/release/astur.exe
+            target/release/astur-settings.exe
+            target/release/CROSS_MONITOR_QA_BUILD_INFO.txt
+            docs/vi/TELEGRAM_TASKBAR_CROSS_MONITOR_SLOT_20261105.md
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Record slot-anchor preview provenance
         if: github.head_ref == 'feat/slot-anchor-placement-20261105' || (github.event_name == 'push' && github.ref == 'refs/heads/feat/slot-anchor-placement-20261105')
         shell: pwsh

@@ -5177,6 +5177,90 @@ impl Manager {
         true
     }
 
+    /// Exchange the windows occupying two slots on DIFFERENT monitors in one
+    /// model mutation. A cross-monitor centre drop must target the actual
+    /// receiving slot, never go through move_window's detach/ensure_visible
+    /// path (which briefly scrolls the destination back to column 1).
+    ///
+    /// Column ids, widths, tab presentations, weights and strip offsets belong
+    /// to the slot positions. Only HWND ownership and active occupants move.
+    /// Both original HWNDs remain managed and visible on their new monitors.
+    fn exchange_cross_monitor_slots(&mut self, h: isize, t: isize) -> bool {
+        let (Some((from_mi, from_wi)), Some((to_mi, to_wi))) = (self.locate(h), self.locate(t))
+        else {
+            return false;
+        };
+        if from_mi == to_mi
+            || from_wi != self.monitors[from_mi].active
+            || to_wi != self.monitors[to_mi].active
+            || self.monitors[from_mi].layout != "scrolling"
+            || self.monitors[to_mi].layout != "scrolling"
+        {
+            return false;
+        }
+
+        // Borrow two monitors independently: neither workspace can be seen
+        // halfway through the exchange by any window-manager command.
+        let (source, destination) = if from_mi < to_mi {
+            let (before, after) = self.monitors.split_at_mut(to_mi);
+            (
+                &mut before[from_mi].workspaces[from_wi],
+                &mut after[0].workspaces[to_wi],
+            )
+        } else {
+            let (before, after) = self.monitors.split_at_mut(from_mi);
+            (
+                &mut after[0].workspaces[from_wi],
+                &mut before[to_mi].workspaces[to_wi],
+            )
+        };
+        if source.floating.contains(&h) || destination.floating.contains(&t) {
+            return false;
+        }
+        let (Some(i), Some(j)) = (
+            source.windows.iter().position(|w| *w == h),
+            destination.windows.iter().position(|w| *w == t),
+        ) else {
+            return false;
+        };
+
+        let source_id = source.strip.col_of.remove(&h);
+        let destination_id = destination.strip.col_of.remove(&t);
+        let source_weight = source.strip.weights.remove(&h);
+        let destination_weight = destination.strip.weights.remove(&t);
+        source.windows[i] = t;
+        destination.windows[j] = h;
+        if let Some(id) = source_id {
+            source.strip.col_of.insert(t, id);
+            if let Some(meta) = source.strip.cols.get_mut(&id) {
+                if meta.active == h {
+                    meta.active = t;
+                }
+            }
+        }
+        if let Some(id) = destination_id {
+            destination.strip.col_of.insert(h, id);
+            if let Some(meta) = destination.strip.cols.get_mut(&id) {
+                if meta.active == t {
+                    meta.active = h;
+                }
+            }
+        }
+        if let Some(weight) = source_weight {
+            source.strip.weights.insert(t, weight);
+        }
+        if let Some(weight) = destination_weight {
+            destination.strip.weights.insert(h, weight);
+        }
+        if source.focused == h {
+            source.focused = t;
+        }
+        destination.focused = h;
+        source.strip.synthetic_reveal_guard = None;
+        destination.strip.synthetic_reveal_guard = None;
+        true
+    }
+
     /// Add `h` (in no workspace) to (`mi`, `wi`), which must exist, and give
     /// it that workspace's focus: the one way a window joins a workspace
     /// (Cmd::Add, move_window). On a scrolling monitor a tiled window goes
@@ -13438,12 +13522,21 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         .synthetic_reveal_guard
                         .take()
                         .is_some_and(|(w, until)| w == h && GetTickCount64() <= until);
+                    let needs_recovery =
+                        slot_activation_needs_retile(&mgr.monitors[mi].workspaces[wi], h);
                     if !skip_reveal {
-                        // The new-window foreground echo is not user intent
-                        // and must not recenter the anchor while placement is
-                        // still pending. An actual later taskbar focus of a
-                        // parked older occupant goes through strip_reveal.
+                        // A real foreground action (including clicking
+                        // Telegram on the taskbar) must physically unpark
+                        // the HWND even if its future layout is already Full.
+                        if needs_recovery {
+                            log_debug!("activate parked hwnd={h:#x} monitor={mi} workspace={wi}");
+                        }
                         strip_reveal(mgr, h);
+                    } else if needs_recovery {
+                        // The new-window foreground echo may arrive before
+                        // its first placement. Retile without ensure_visible,
+                        // so recovery cannot yank the previous slot anchor.
+                        retile_monitor(mgr, mi);
                     }
                 } else {
                     // The OS foregrounded a window on a hidden workspace (an app
@@ -14138,27 +14231,63 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 mgr.focused_mon = from_mi;
                 retile_drop(mgr, from_mi);
             } else {
-                // Move the window to the monitor it was dropped on, landing it
-                // where it was dropped in the tiled order (or its drop zone).
+                // A drop on another scrolling monitor is targeted by the
+                // PHYSICAL slot under the pointer. Exchanging two occupied
+                // slots is atomic and keeps both monitors' viewport offsets.
+                // In particular, dragging CS4 -> screen 1 / slot 2 cannot
+                // first jump to screen 1 / slot 1 via ensure_visible().
                 let to_a = mgr.monitors[to_mi].active;
-                let at = if scrolling {
-                    zone
-                } else {
+                let swap_target = if scrolling && mgr.monitors[from_mi].layout == "scrolling" {
                     target
-                        .and_then(|t| {
-                            mgr.monitors[to_mi].workspaces[to_a]
-                                .windows
-                                .iter()
-                                .position(|&w| w == t)
-                        })
-                        .map(DropAt::Index)
+                } else {
+                    None
                 };
-                if !mgr.move_window(h, to_mi, to_a, at) {
-                    return;
+                let exchanged = swap_target.is_some_and(|t| mgr.exchange_cross_monitor_slots(h, t));
+                if !exchanged {
+                    // Edge/no-target drops preserve the Niri insertion rule.
+                    // A drop INSIDE a destination slot always consumes that
+                    // exact slot, even near its border, never a default
+                    // insertion after the focused column.
+                    let at = if scrolling {
+                        target.map(DropAt::Below).or(zone)
+                    } else {
+                        target
+                            .and_then(|t| {
+                                mgr.monitors[to_mi].workspaces[to_a]
+                                    .windows
+                                    .iter()
+                                    .position(|&w| w == t)
+                            })
+                            .map(DropAt::Index)
+                    };
+                    let source_offset = mgr.monitors[from_mi].workspaces[from_a].strip.offset;
+                    let target_offset = mgr.monitors[to_mi].workspaces[to_a].strip.offset;
+                    if !mgr.move_window(h, to_mi, to_a, at) {
+                        return;
+                    }
+                    if scrolling && target.is_some() {
+                        let ws = &mut mgr.monitors[to_mi].workspaces[to_a];
+                        // A consumed occupied slot is an implicit stack, not
+                        // an unsolicited manual Tab Mode/title bar.
+                        let meta = ws.strip.col_mut(h, mgr.cfg.scroll_default_width);
+                        if !meta.tabbed {
+                            meta.auto_stack = true;
+                        }
+                        meta.active = h;
+                        // The column spans have not changed, so exact
+                        // destination viewport position can be restored.
+                        ws.strip.offset = target_offset;
+                    }
+                    if mgr.monitors[from_mi].layout == "scrolling" {
+                        mgr.monitors[from_mi].workspaces[from_a].strip.offset = source_offset;
+                    }
                 }
                 mgr.focused_mon = to_mi;
-                // The source closes its gap instantly; the destination's
-                // motion shows the window settling in from the drop.
+                log_debug!(
+                    "cross-monitor drop hwnd={h:#x} from={from_mi} to={to_mi} target={target:?} exchanged={exchanged}"
+                );
+                // The source is placed instantly, the destination animates.
+                // No intermediate first-column placement is ever committed.
                 retile_monitor_opts(mgr, from_mi, true);
                 retile_drop(mgr, to_mi);
             }
@@ -20103,6 +20232,14 @@ const WINEVENT_RANGES: [(u32, u32, &str); 7] = [
 /// partly blind to window lifecycle; shown in the counters line.
 static WINEVENT_HOOKS_FAILED: AtomicU32 = AtomicU32::new(0);
 
+/// A repeated foreground event is normally duplicate work. It is NOT a
+/// duplicate if the same HWND is still parked, hidden by Astur or iconic:
+/// taskbar activation can return to the same HWND after the first failed
+/// reveal, and dropping the retry strands e.g. Telegram offscreen.
+fn accept_foreground_event(same: bool, recover: bool) -> bool {
+    !same || recover
+}
+
 /// Does a queued Cmd::Focused(h) still describe the foreground? `fg_root` is
 /// GetAncestor(GetForegroundWindow(), GA_ROOTOWNER) at processing time.
 fn focused_follow_allowed(fg_root: isize, h: isize) -> bool {
@@ -20268,6 +20405,17 @@ unsafe extern "system" fn win_event_proc(
                 );
                 if should_add {
                     push_cmd(Cmd::Add(h, event));
+                } else if managed
+                    && !SUPPRESS.load(Ordering::Relaxed)
+                    && GetAncestor(GetForegroundWindow(), GA_ROOTOWNER).0 as isize == h
+                    && window_is_physically_parked(h)
+                {
+                    // A taskbar restore can SHOW an already tracked window
+                    // without a fresh foreground transition, especially if
+                    // Windows still considers that HWND active. Recover the
+                    // parked tile instead of waiting for a second taskbar click.
+                    log_debug!("SHOW recovery hwnd={h:#x} parked=true");
+                    push_cmd(Cmd::Focused(h));
                 } else if log_on(LOG_DEBUG) {
                     log_debug!(
                         "background show deferred {h:#x} class='{}'",
@@ -20330,8 +20478,16 @@ unsafe extern "system" fn win_event_proc(
             if (MAIN_DOWN.load(Ordering::Relaxed) || hotkey_held()) && integrity_above_own(hwnd) {
                 main_reset("elevated foreground");
             }
-            if LAST_FG.swap(h, Ordering::Relaxed) == h {
+            let same = LAST_FG.swap(h, Ordering::Relaxed) == h;
+            let recovery = is_managed(h)
+                && (IsIconic(hwnd).as_bool()
+                    || was_hidden_by_us(h)
+                    || window_is_physically_parked(h));
+            if !accept_foreground_event(same, recovery) {
                 return;
+            }
+            if recovery {
+                log_debug!("foreground recovery hwnd={h:#x} same={same}");
             }
             push_cmd(Cmd::Focused(h));
             if show_needs_add(
@@ -28136,6 +28292,77 @@ mod tests {
         assert!(mgr.move_window(0xA, 1, 0, Some(DropAt::Index(1))));
         assert_eq!(mgr.monitors[1].workspaces[0].windows, vec![0xB, 0xA, 0xC]);
         assert_model_sound(&mgr, &[0xA, 0xB, 0xC]);
+    }
+
+    #[test]
+    fn crossing_two_monitors_swaps_exact_slots_without_recentring_either_view() {
+        let mut mgr = test_manager(2, 1);
+        mgr.monitors[0].layout = "scrolling".to_owned();
+        mgr.monitors[1].layout = "scrolling".to_owned();
+        for (mi, h) in [(0, 1), (0, 2), (1, 3), (1, 4)] {
+            add(&mut mgr, mi, 0, h, false);
+        }
+        mgr.monitors[0].workspaces[0].strip.offset = 25;
+        mgr.monitors[1].workspaces[0].strip.offset = 48;
+
+        // 4 (screen 2 / slot 2) -> 2 (screen 1 / slot 2).
+        // Neither monitor is ever first rebuilt with 4 in slot 1.
+        assert!(mgr.exchange_cross_monitor_slots(4, 2));
+        assert_eq!(mgr.monitors[0].workspaces[0].windows, vec![1, 4]);
+        assert_eq!(mgr.monitors[1].workspaces[0].windows, vec![3, 2]);
+        assert_eq!(mgr.locate(4), Some((0, 0)));
+        assert_eq!(mgr.locate(2), Some((1, 0)));
+        assert_eq!(mgr.monitors[0].workspaces[0].strip.offset, 25);
+        assert_eq!(mgr.monitors[1].workspaces[0].strip.offset, 48);
+        assert_model_sound(&mgr, &[1, 2, 3, 4]);
+
+        // 1 -> 3, then 3 -> 2: non-adjacent screen/slot pairs.
+        assert!(mgr.exchange_cross_monitor_slots(1, 3));
+        assert_eq!(mgr.monitors[0].workspaces[0].windows, vec![3, 4]);
+        assert_eq!(mgr.monitors[1].workspaces[0].windows, vec![1, 2]);
+        assert!(mgr.exchange_cross_monitor_slots(3, 2));
+        assert_eq!(mgr.monitors[0].workspaces[0].windows, vec![2, 4]);
+        assert_eq!(mgr.monitors[1].workspaces[0].windows, vec![1, 3]);
+        assert_model_sound(&mgr, &[1, 2, 3, 4]);
+        assert_eq!(mgr.monitors[0].workspaces[0].strip.offset, 25);
+        assert_eq!(mgr.monitors[1].workspaces[0].strip.offset, 48);
+    }
+
+    #[test]
+    fn cross_monitor_swap_keeps_tab_group_memberships_and_display_modes() {
+        let mut mgr = test_manager(2, 1);
+        mgr.monitors[0].layout = "scrolling".to_owned();
+        mgr.monitors[1].layout = "scrolling".to_owned();
+        for (mi, h) in [(0, 1), (0, 2), (1, 3), (1, 4)] {
+            add(&mut mgr, mi, 0, h, false);
+        }
+        let a = &mut mgr.monitors[0].workspaces[0];
+        let id = a.strip.col_id(1);
+        a.strip.col_of.insert(2, id);
+        let meta = a.strip.col_mut(1, 0.5);
+        meta.tabbed = true;
+        meta.active = 2;
+        a.strip.weights.insert(2, 0.75);
+        let b = &mut mgr.monitors[1].workspaces[0];
+        b.strip.col_mut(3, 0.5).auto_stack = false;
+
+        assert!(mgr.exchange_cross_monitor_slots(2, 3));
+        let a = &mgr.monitors[0].workspaces[0];
+        let b = &mgr.monitors[1].workspaces[0];
+        assert_eq!(a.strip.columns(&[1, 3]), vec![vec![1, 3]]);
+        assert!(a.strip.col_meta(&[1, 3]).unwrap().tabbed);
+        assert_eq!(a.strip.col_meta(&[1, 3]).unwrap().active, 3);
+        assert_eq!(a.strip.weights.get(&3), Some(&0.75));
+        assert_eq!(b.windows, vec![2, 4]);
+        assert_eq!(b.focused, 2);
+        assert_model_sound(&mgr, &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn retry_foreground_when_managed_telegram_is_still_parked() {
+        assert!(accept_foreground_event(false, false));
+        assert!(!accept_foreground_event(true, false));
+        assert!(accept_foreground_event(true, true));
     }
 
     #[test]
