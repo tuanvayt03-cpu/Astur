@@ -134,11 +134,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GA_ROOTOWNER, HC_ACTION, HHOOK, HWND_TOPMOST, KBDLLHOOKSTRUCT, LAYERED_WINDOW_ATTRIBUTES_FLAGS,
     LLKHF_INJECTED, LWA_ALPHA, MSG, MSLLHOOKSTRUCT, SET_WINDOW_POS_FLAGS, SWP_ASYNCWINDOWPOS,
     SWP_NOACTIVATE, SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE,
-    SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WNDCLASSW,
-    WS_EX_APPWINDOW, WS_EX_DLGMODALFRAME, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
+    SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
+    WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
+    WNDCLASSW, WS_EX_APPWINDOW, WS_EX_DLGMODALFRAME, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP,
+    WS_SYSMENU,
 };
 
 // --- tiling additions -----------------------------------------------------
@@ -2508,8 +2509,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             if s.mode == Mode::Move {
                 let h = s.hwnd;
                 let (cx, cy, cw, ch) = (s.cur_x, s.cur_y, s.cur_w, s.cur_h);
-                let moved = (pt.x - s.origin_x).abs() >= 12
-                    || (pt.y - s.origin_y).abs() >= 12;
+                let moved = (pt.x - s.origin_x).abs() >= 12 || (pt.y - s.origin_y).abs() >= 12;
                 s.mode = Mode::None;
                 ANY_DRAG.store(false, Ordering::Relaxed);
                 drop(s);
@@ -2615,15 +2615,15 @@ enum Cmd {
     /// target's own message loop, so it must never run on the hook.
     DragUnmaximize(isize, RECT),
     DragMoved(isize, i32, i32, RECT, bool), // (hwnd, release x/y, final rect, moved enough for edge snap)
-    DragResized(isize, Option<RECT>), // released after resize; None = read the live rect
-    LaunchTerminal,                   // Alt+Enter
-    LaunchBrowser,                    // Alt+Shift+Enter
-    FocusGeo(Dir),                    // Alt+arrow: focus the window in a direction
-    MoveGeo(Dir),                     // Alt+Shift+arrow: move the window in a direction
-    FocusMouse(isize),                // focus-follows-mouse: cursor hovered this window
-    BarClick(isize, usize),           // bar pill clicked: (monitor hmon, local workspace)
-    BarFocus(isize),                  // bar app-button clicked: focus this window
-    BarCycle(isize, i32),             // bar wheel: (monitor hmon, +1 next / -1 prev workspace)
+    DragResized(isize, Option<RECT>),       // released after resize; None = read the live rect
+    LaunchTerminal,                         // Alt+Enter
+    LaunchBrowser,                          // Alt+Shift+Enter
+    FocusGeo(Dir),                          // Alt+arrow: focus the window in a direction
+    MoveGeo(Dir),                           // Alt+Shift+arrow: move the window in a direction
+    FocusMouse(isize),                      // focus-follows-mouse: cursor hovered this window
+    BarClick(isize, usize),                 // bar pill clicked: (monitor hmon, local workspace)
+    BarFocus(isize),                        // bar app-button clicked: focus this window
+    BarCycle(isize, i32), // bar wheel: (monitor hmon, +1 next / -1 prev workspace)
     /// A bar widget clicked with a click action: which bar, widget
     /// (BarWidget as u8), button (0 left, 1 right, 2 middle) and music
     /// button (`sub`). The manager reads the action from its config, so the
@@ -4599,9 +4599,7 @@ fn scroll_anchor_admission(
     let mut tile_idx = 0;
     for (ci, col) in cols.iter().enumerate() {
         if let Some(&r) = slots.get(tile_idx) {
-            if r.right > area.left + cfg.outer_gap
-                && r.left < area.right - cfg.outer_gap
-            {
+            if r.right > area.left + cfg.outer_gap && r.left < area.right - cfg.outer_gap {
                 visible.push((ci, r));
             }
         }
@@ -4639,7 +4637,11 @@ fn scroll_anchor_admission(
         .filter(|(ci, _)| *ci != anchor)
         .min_by_key(|(_, r)| {
             let x = (r.left as i64 + r.right as i64) / 2;
-            let on_other_side = if prefer_right { x > anchor_x } else { x < anchor_x };
+            let on_other_side = if prefer_right {
+                x > anchor_x
+            } else {
+                x < anchor_x
+            };
             (!on_other_side, (x - anchor_x).abs())
         })
         .map(|(ci, _)| cols[*ci][0]);
@@ -12991,21 +12993,19 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         && !scratch
                         && GetForegroundWindow() != hwnd;
                     let prev_focus = mgr.monitors[mi].workspaces[wi].focused;
-                    let (at, tab_target) = if mgr.monitors[mi].layout == "scrolling"
-                        && !floating
-                        && !quiet
-                        && visible
-                    {
-                        let ws = &mgr.monitors[mi].workspaces[wi];
-                        scroll_anchor_admission(
-                            ws,
-                            &tiled_windows(ws),
-                            mgr.monitors[mi].work_area,
-                            &mgr.cfg,
-                        )
-                    } else {
-                        (None, None)
-                    };
+                    let (at, tab_target) =
+                        if mgr.monitors[mi].layout == "scrolling" && !floating && !quiet && visible
+                        {
+                            let ws = &mgr.monitors[mi].workspaces[wi];
+                            scroll_anchor_admission(
+                                ws,
+                                &tiled_windows(ws),
+                                mgr.monitors[mi].work_area,
+                                &mgr.cfg,
+                            )
+                        } else {
+                            (None, None)
+                        };
                     mgr.insert_window(h, mi, wi, at, floating);
                     if let Some(target) = tab_target {
                         // This is a visibility replacement, not a minimize or
@@ -20063,10 +20063,8 @@ unsafe extern "system" fn win_event_proc(
             }
             let mut pt = POINT::default();
             let mut rect = RECT::default();
-            let has_rect = GetCursorPos(&mut pt).is_ok()
-                && GetWindowRect(hwnd, &mut rect).is_ok();
-            let moved = (pt.x - start_x).abs() >= 12
-                || (pt.y - start_y).abs() >= 12;
+            let has_rect = GetCursorPos(&mut pt).is_ok() && GetWindowRect(hwnd, &mut rect).is_ok();
+            let moved = (pt.x - start_x).abs() >= 12 || (pt.y - start_y).abs() >= 12;
             let transferred = has_rect
                 && native_caption_transfer(
                     started_caption,
