@@ -134,7 +134,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GA_ROOTOWNER, HC_ACTION, HHOOK, HWND_TOPMOST, KBDLLHOOKSTRUCT, LAYERED_WINDOW_ATTRIBUTES_FLAGS,
     LLKHF_INJECTED, LWA_ALPHA, MSG, MSLLHOOKSTRUCT, SET_WINDOW_POS_FLAGS, SWP_ASYNCWINDOWPOS,
     SWP_NOACTIVATE, SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE,
-    SW_RESTORE, SW_SHOWNA, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
+    SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
     WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
     WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WNDCLASSW,
     WS_EX_APPWINDOW, WS_EX_DLGMODALFRAME, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
@@ -815,6 +815,8 @@ static NATIVE_DRAG: AtomicIsize = AtomicIsize::new(0);
 /// No hook is installed and native clicks are never suppressed.
 static NATIVE_DRAG_MONITOR: AtomicIsize = AtomicIsize::new(0);
 static NATIVE_DRAG_CAPTION: AtomicBool = AtomicBool::new(false);
+static NATIVE_DRAG_ORIGIN_X: AtomicI32 = AtomicI32::new(0);
+static NATIVE_DRAG_ORIGIN_Y: AtomicI32 = AtomicI32::new(0);
 
 /// Be conservative: exclude side/top resize grips. Only the ordinary
 /// caption strip qualifies for modifier-free cross-monitor transfers.
@@ -2506,6 +2508,8 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             if s.mode == Mode::Move {
                 let h = s.hwnd;
                 let (cx, cy, cw, ch) = (s.cur_x, s.cur_y, s.cur_w, s.cur_h);
+                let moved = (pt.x - s.origin_x).abs() >= 12
+                    || (pt.y - s.origin_y).abs() >= 12;
                 s.mode = Mode::None;
                 ANY_DRAG.store(false, Ordering::Relaxed);
                 drop(s);
@@ -2520,6 +2524,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                         right: cx + cw,
                         bottom: cy + ch,
                     },
+                    moved,
                 ));
                 return mouse_eat(MOUSE_EAT_ALT_MOVE_UP);
             }
@@ -2609,7 +2614,7 @@ enum Cmd {
     /// at the predicted restored rect. `ShowWindow(SW_RESTORE)` drives the
     /// target's own message loop, so it must never run on the hook.
     DragUnmaximize(isize, RECT),
-    DragMoved(isize, i32, i32, RECT), // dropped after Alt+left-drag: (hwnd, x, y, final rect)
+    DragMoved(isize, i32, i32, RECT, bool), // (hwnd, release x/y, final rect, moved enough for edge snap)
     DragResized(isize, Option<RECT>), // released after resize; None = read the live rect
     LaunchTerminal,                   // Alt+Enter
     LaunchBrowser,                    // Alt+Shift+Enter
@@ -4568,6 +4573,120 @@ fn column_target(from: Option<usize>, n: i32, len: usize) -> Option<usize> {
         None => len - 1,
     };
     (Some(to) != from).then_some(to)
+}
+
+/// Choose where a newly opened window joins a scrolling workspace without
+/// shifting the column the user was working in. Use genuinely unoccupied
+/// viewport space first. Once the view is full, put the newcomer into a tab
+/// of a *different* visible column; never minimize the anchor or push it away.
+/// The second return value is the column to make tabbed after insertion.
+fn scroll_anchor_admission(
+    ws: &Workspace,
+    tiled: &[isize],
+    area: RECT,
+    cfg: &Config,
+) -> (Option<DropAt>, Option<isize>) {
+    let cols = ws.strip.columns(tiled);
+    let Some((anchor, _)) = locate_tile(&cols, ws.focused) else {
+        return (None, None);
+    };
+    let view_w = area.right - area.left;
+    if view_w <= 0 {
+        return (None, None);
+    }
+    let slots = strip_out(&ws.strip, tiled, ws.focused, area, cfg, 0).tiles;
+    let mut visible: Vec<(usize, RECT)> = Vec::new();
+    let mut tile_idx = 0;
+    for (ci, col) in cols.iter().enumerate() {
+        if let Some(&r) = slots.get(tile_idx) {
+            if r.right > area.left + cfg.outer_gap
+                && r.left < area.right - cfg.outer_gap
+            {
+                visible.push((ci, r));
+            }
+        }
+        tile_idx += col.len();
+    }
+    if !visible.iter().any(|(ci, _)| *ci == anchor) {
+        return (None, None);
+    }
+    let required = strip_spans(
+        view_w,
+        &[cfg.scroll_default_width],
+        cfg.outer_gap,
+        cfg.inner_gap,
+    )[0];
+    let needed = required.1 - required.0;
+    let left = area.left + cfg.outer_gap;
+    let right = area.right - cfg.outer_gap;
+    let (first, first_rect) = visible[0];
+    let (last, last_rect) = *visible.last().unwrap();
+    if right - last_rect.right - cfg.inner_gap >= needed {
+        return (Some(DropAt::After(*cols[last].last().unwrap())), None);
+    }
+    if first_rect.left - left - cfg.inner_gap >= needed {
+        return (Some(DropAt::Before(cols[first][0])), None);
+    }
+    let anchor_rect = visible.iter().find(|(ci, _)| *ci == anchor).unwrap().1;
+    let anchor_x = (anchor_rect.left as i64 + anchor_rect.right as i64) / 2;
+    let middle = (left as i64 + right as i64) / 2;
+    let prefer_right = anchor_x < middle;
+    // Nearest other visible slot, preferring the opposite direction from the
+    // anchor's screen edge. A two-slot strip therefore replaces the other
+    // slot regardless of which window is active.
+    let replacement = visible
+        .iter()
+        .filter(|(ci, _)| *ci != anchor)
+        .min_by_key(|(_, r)| {
+            let x = (r.left as i64 + r.right as i64) / 2;
+            let on_other_side = if prefer_right { x > anchor_x } else { x < anchor_x };
+            (!on_other_side, (x - anchor_x).abs())
+        })
+        .map(|(ci, _)| cols[*ci][0]);
+    match replacement {
+        Some(target) => (Some(DropAt::Below(target)), Some(target)),
+        // An intentionally full-width single column is the only slot. Keep
+        // the existing scrolling contract rather than forcibly shrinking it.
+        None => (None, None),
+    }
+}
+
+/// A center-drop can exchange any two independent scrolling slots, not
+/// just adjacent ones. Edges keep their explicit strip insertion semantics.
+/// Multi-tile columns remain intact; those are moved through the existing
+/// before/after/below drop zones rather than silently splitting a tab group.
+fn scroll_slot_swap_allowed(
+    ws: &Workspace,
+    tiled: &[isize],
+    source: isize,
+    target: isize,
+    pt: POINT,
+    target_rect: RECT,
+) -> bool {
+    let cols = ws.strip.columns(tiled);
+    let Some((source_col, _)) = locate_tile(&cols, source) else {
+        return false;
+    };
+    let Some((target_col, _)) = locate_tile(&cols, target) else {
+        return false;
+    };
+    let q = (target_rect.right - target_rect.left) / 4;
+    source_col != target_col
+        && cols[source_col].len() == 1
+        && cols[target_col].len() == 1
+        && pt.x >= target_rect.left + q
+        && pt.x < target_rect.right - q
+}
+
+/// A real drag released at the physical top edge maximizes the window. The
+/// tolerance is per-monitor, including displays above or left of the primary.
+/// A stationary Alt+click and a cursor on a neighbour display cannot snap.
+fn drag_reaches_top_edge(pt: POINT, monitor: RECT, moved: bool) -> bool {
+    moved
+        && pt.x >= monitor.left
+        && pt.x < monitor.right
+        && pt.y >= monitor.top
+        && pt.y <= monitor.top + 20
 }
 
 /// The scrolling drop zone of an Alt+left-drag released at `pt`
@@ -12872,7 +12991,32 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         && !scratch
                         && GetForegroundWindow() != hwnd;
                     let prev_focus = mgr.monitors[mi].workspaces[wi].focused;
-                    mgr.insert_window(h, mi, wi, None, floating);
+                    let (at, tab_target) = if mgr.monitors[mi].layout == "scrolling"
+                        && !floating
+                        && !quiet
+                        && visible
+                    {
+                        let ws = &mgr.monitors[mi].workspaces[wi];
+                        scroll_anchor_admission(
+                            ws,
+                            &tiled_windows(ws),
+                            mgr.monitors[mi].work_area,
+                            &mgr.cfg,
+                        )
+                    } else {
+                        (None, None)
+                    };
+                    mgr.insert_window(h, mi, wi, at, floating);
+                    if let Some(target) = tab_target {
+                        // This is a visibility replacement, not a minimize or
+                        // a new scrolling column. The old window remains a tab
+                        // in its original slot and can be focused again.
+                        let default = mgr.cfg.scroll_default_width;
+                        let ws = &mut mgr.monitors[mi].workspaces[wi];
+                        let col = ws.strip.col_mut(target, default);
+                        col.tabbed = true;
+                        col.active = h;
+                    }
                     // A delayed SHOW may adopt a restored independent window
                     // before its MINIMIZEEND probe: avoid stale membership.
                     independent_remember(h, false);
@@ -13505,7 +13649,7 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 }
             }
         }
-        Cmd::DragMoved(h, x, y, r) => {
+        Cmd::DragMoved(h, x, y, r, moved) => {
             // Preserve a DPI-driven size change while landing the release point.
             // This is ordered after live samples by the manager's own queue.
             place_drag(DragFrame {
@@ -13513,6 +13657,24 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 rect: r,
                 resize: false,
             });
+            // Edge snap is explicit for Alt-drag and modifier-free caption
+            // drags when Windows Snap is disabled. A maximized surface becomes
+            // independent before any tiling pass can undo the maximize.
+            if moved && mgr.locate(h).is_some() {
+                let drop_monitor = monitor_index_for_point(mgr, POINT { x, y });
+                let hwnd = hwnd_from(h);
+                let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+                if drag_reaches_top_edge(POINT { x, y }, mgr.monitors[drop_monitor].full, moved)
+                    && style & WS_MAXIMIZEBOX.0 != 0
+                    && !IsZoomed(hwnd).as_bool()
+                {
+                    let _ = ShowWindow(hwnd, SW_MAXIMIZE);
+                    if IsZoomed(hwnd).as_bool() {
+                        reconcile_independence(mgr, h);
+                        return;
+                    }
+                }
+            }
             if !mgr.tiling {
                 return;
             }
@@ -13567,27 +13729,53 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 None
             };
             if to_mi == from_mi && scrolling {
-                if let Some(zone) = zone {
-                    // A column of one keeps its settings (width, full-width
-                    // toggle) through the move. A tile leaving a shared
-                    // column starts at the default width, like an expel.
-                    let ws = &mgr.monitors[from_mi].workspaces[from_a];
-                    let cols = ws.strip.columns(&tiled_windows(ws));
-                    let keep = locate_tile(&cols, h)
-                        .filter(|&(ci, _)| cols[ci].len() == 1)
-                        .and_then(|_| ws.strip.col_meta(&[h]).copied());
-                    if mgr.move_window(h, from_mi, from_a, Some(zone))
-                        && !matches!(zone, DropAt::Below(_))
-                    {
-                        if let Some(meta) = keep {
-                            let default = mgr.cfg.scroll_default_width;
-                            let ws = &mut mgr.monitors[from_mi].workspaces[from_a];
-                            *ws.strip.col_mut(h, default) = ColMeta { active: h, ..meta };
-                            ensure_visible(mgr, from_mi, from_a);
+                // A centre-drop onto another single-tile column swaps its
+                // occupied slot, including non-adjacent columns. Edge drops
+                // retain the existing Niri-style before/after insertion.
+                let swapped = if let Some(t) = target {
+                    let tr = window_rect_of(t);
+                    let ws = &mut mgr.monitors[from_mi].workspaces[from_a];
+                    if scroll_slot_swap_allowed(ws, &tiled_windows(ws), h, t, pt, tr) {
+                        let ia = ws.windows.iter().position(|&w| w == h);
+                        let ib = ws.windows.iter().position(|&w| w == t);
+                        if let (Some(ia), Some(ib)) = (ia, ib) {
+                            ws.windows.swap(ia, ib);
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                if !swapped {
+                    if let Some(zone) = zone {
+                        // A column of one keeps its settings (width, full-width
+                        // toggle) through the move. A tile leaving a shared
+                        // column starts at the default width, like an expel.
+                        let ws = &mgr.monitors[from_mi].workspaces[from_a];
+                        let cols = ws.strip.columns(&tiled_windows(ws));
+                        let keep = locate_tile(&cols, h)
+                            .filter(|&(ci, _)| cols[ci].len() == 1)
+                            .and_then(|_| ws.strip.col_meta(&[h]).copied());
+                        if mgr.move_window(h, from_mi, from_a, Some(zone))
+                            && !matches!(zone, DropAt::Below(_))
+                        {
+                            if let Some(meta) = keep {
+                                let default = mgr.cfg.scroll_default_width;
+                                let ws = &mut mgr.monitors[from_mi].workspaces[from_a];
+                                *ws.strip.col_mut(h, default) = ColMeta { active: h, ..meta };
+                                ensure_visible(mgr, from_mi, from_a);
+                            }
                         }
                     }
                 }
                 mgr.monitors[from_mi].workspaces[from_a].focused = h;
+                if swapped {
+                    ensure_visible(mgr, from_mi, from_a);
+                }
                 // h is the focus the motion's dims end at (global_focus).
                 mgr.focused_mon = from_mi;
                 retile_drop(mgr, from_mi);
@@ -19627,6 +19815,8 @@ unsafe extern "system" fn win_event_proc(
         {
             NATIVE_DRAG_MONITOR.store(0, Ordering::Relaxed);
             NATIVE_DRAG_CAPTION.store(false, Ordering::Relaxed);
+            NATIVE_DRAG_ORIGIN_X.store(0, Ordering::Relaxed);
+            NATIVE_DRAG_ORIGIN_Y.store(0, Ordering::Relaxed);
         }
     }
     // SHOW prefilter (EVENTS-1): a child, tool or no-activate window can never
@@ -19858,37 +20048,43 @@ unsafe extern "system" fn win_event_proc(
                 && GetWindowRect(hwnd, &mut rect).is_ok()
                 && native_caption_drag_origin(pt, rect, GetWindowLongW(hwnd, GWL_STYLE) as u32);
             NATIVE_DRAG_CAPTION.store(began_on_caption, Ordering::Relaxed);
+            NATIVE_DRAG_ORIGIN_X.store(pt.x, Ordering::Relaxed);
+            NATIVE_DRAG_ORIGIN_Y.store(pt.y, Ordering::Relaxed);
             cancel_glide();
         }
         EVENT_SYSTEM_MOVESIZEEND => {
             let source = NATIVE_DRAG.swap(0, Ordering::Relaxed);
             let start_monitor = NATIVE_DRAG_MONITOR.swap(0, Ordering::Relaxed);
             let started_caption = NATIVE_DRAG_CAPTION.swap(false, Ordering::Relaxed);
+            let start_x = NATIVE_DRAG_ORIGIN_X.swap(0, Ordering::Relaxed);
+            let start_y = NATIVE_DRAG_ORIGIN_Y.swap(0, Ordering::Relaxed);
             if is_managed(h) || independent_seen(h) {
                 push_cmd(Cmd::RefreshIndependence(h));
             }
             let mut pt = POINT::default();
             let mut rect = RECT::default();
-            if source == h
-                && is_managed(h)
-                && GetCursorPos(&mut pt).is_ok()
-                && GetWindowRect(hwnd, &mut rect).is_ok()
+            let has_rect = GetCursorPos(&mut pt).is_ok()
+                && GetWindowRect(hwnd, &mut rect).is_ok();
+            let moved = (pt.x - start_x).abs() >= 12
+                || (pt.y - start_y).abs() >= 12;
+            let transferred = has_rect
                 && native_caption_transfer(
                     started_caption,
                     start_monitor,
                     MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST).0 as isize,
                     IsZoomed(hwnd).as_bool(),
-                )
+                );
+            if source == h
+                && is_managed(h)
+                && has_rect
+                && !IsZoomed(hwnd).as_bool()
+                && (transferred || (started_caption && moved))
             {
-                // Reuse the exact Alt-drag monitor ownership/layout path. It
-                // handles floats, scrolling columns, focus and per-monitor
-                // active workspaces, and never leaves a moved tile registered
-                // with the old display.
-                push_cmd(Cmd::DragMoved(h, pt.x, pt.y, rect));
+                // Reuse Alt-drag for *same-monitor* slot movement too. Native
+                // caption input remains owned by Windows; resize grips, Snap
+                // maximize and negligible caption clicks stay on their path.
+                push_cmd(Cmd::DragMoved(h, pt.x, pt.y, rect, moved || transferred));
             } else {
-                // Same-screen native resize and Windows Snap maximize retain
-                // their existing semantics; never turn an edge resize into
-                // a cross-monitor move.
                 push_cmd(Cmd::DragResized(h, None));
             }
         }
@@ -30090,6 +30286,131 @@ mod tests {
         assert_eq!(column_target(None, 1, 3), Some(0));
         assert_eq!(column_target(None, -1, 3), Some(2));
         assert_eq!(column_target(None, 1, 0), None, "empty strip");
+    }
+
+    #[test]
+    fn admission_preserves_the_active_slot_and_fills_space_before_stacking() {
+        let mut cfg = Config::defaults();
+        cfg.scroll_default_width = 0.5;
+        cfg.outer_gap = 10;
+        cfg.inner_gap = 10;
+        let area = rect(0, 0, 1000, 700);
+        let mut ws = strip_ws(&[A], &[]);
+        ws.focused = A;
+        assert_eq!(
+            scroll_anchor_admission(&ws, &[A], area, &cfg),
+            (Some(DropAt::After(A)), None),
+            "new column must fill the empty half before stacking"
+        );
+
+        let mut ws = strip_ws(&[A, B], &[]);
+        ws.focused = A;
+        assert_eq!(
+            scroll_anchor_admission(&ws, &[A, B], area, &cfg),
+            (Some(DropAt::Below(B)), Some(B)),
+            "focused left: new window must replace the right slot's visible tab"
+        );
+        ws.focused = B;
+        assert_eq!(
+            scroll_anchor_admission(&ws, &[A, B], area, &cfg),
+            (Some(DropAt::Below(A)), Some(A)),
+            "focused right: new window must replace the left slot's visible tab"
+        );
+
+        ws.insert_in_strip(&[A, B], C, Some(DropAt::Below(A)));
+        let meta = ws.strip.col_mut(A, cfg.scroll_default_width);
+        meta.tabbed = true;
+        meta.active = C;
+        assert_eq!(ws.strip.columns(&[A, C, B]), vec![vec![A, C], vec![B]]);
+        assert_eq!(ws.strip.hidden_tabs(&[A, C, B], C), vec![A]);
+        assert_eq!(ws.strip.hidden_tabs(&[A, C, B], A), vec![C]);
+    }
+
+    #[test]
+    fn admission_supports_five_slots_without_displacing_existing_columns() {
+        const E: isize = 0xE;
+        let mut cfg = Config::defaults();
+        cfg.scroll_default_width = 0.2;
+        cfg.outer_gap = 10;
+        cfg.inner_gap = 10;
+        let area = rect(0, 0, 1000, 700);
+        let mut ws = strip_ws(&[A, B, C, D], &[]);
+        ws.focused = B;
+        assert_eq!(
+            scroll_anchor_admission(&ws, &[A, B, C, D], area, &cfg),
+            (Some(DropAt::After(D)), None),
+        );
+        let ws = strip_ws(&[A, B, C, D, E], &[]);
+        assert!(
+            scroll_anchor_admission(&ws, &[A, B, C, D, E], area, &cfg)
+                .1
+                .is_some(),
+            "once full, a newcomer reuses a different slot"
+        );
+    }
+
+    #[test]
+    fn scrolling_drag_can_swap_nonadjacent_slots_without_shifting_intermediates() {
+        let ws = strip_ws(&[A, B, C, D], &[]);
+        let target = rect(700, 0, 900, 700);
+        assert!(scroll_slot_swap_allowed(
+            &ws,
+            &[A, B, C, D],
+            A,
+            D,
+            POINT { x: 800, y: 300 },
+            target
+        ));
+        assert!(!scroll_slot_swap_allowed(
+            &ws,
+            &[A, B, C, D],
+            A,
+            D,
+            POINT { x: 710, y: 300 },
+            target
+        ));
+        assert!(!scroll_slot_swap_allowed(
+            &ws,
+            &[A, B, C, D],
+            A,
+            A,
+            POINT { x: 800, y: 300 },
+            target
+        ));
+        let grouped = strip_ws(&[A, B, C, D], &[(B, 1), (C, 1)]);
+        assert!(!scroll_slot_swap_allowed(
+            &grouped,
+            &[A, B, C, D],
+            A,
+            B,
+            POINT { x: 800, y: 300 },
+            target
+        ));
+    }
+
+    #[test]
+    fn drag_to_physical_top_edge_needs_real_motion_on_that_monitor() {
+        let upper = rect(1920, -1200, 3840, 0);
+        assert!(drag_reaches_top_edge(
+            POINT { x: 2500, y: -1195 },
+            upper,
+            true
+        ));
+        assert!(!drag_reaches_top_edge(
+            POINT { x: 2500, y: -1195 },
+            upper,
+            false
+        ));
+        assert!(!drag_reaches_top_edge(
+            POINT { x: 2500, y: -1100 },
+            upper,
+            true
+        ));
+        assert!(!drag_reaches_top_edge(
+            POINT { x: 3840, y: -1198 },
+            upper,
+            true
+        ));
     }
 
     #[test]
