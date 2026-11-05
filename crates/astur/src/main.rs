@@ -4585,6 +4585,7 @@ fn scroll_anchor_admission(
     tiled: &[isize],
     area: RECT,
     cfg: &Config,
+    previous: Option<isize>,
 ) -> (Option<DropAt>, Option<isize>) {
     let cols = ws.strip.columns(tiled);
     let Some((anchor, _)) = locate_tile(&cols, ws.focused) else {
@@ -4632,19 +4633,28 @@ fn scroll_anchor_admission(
     // Nearest other visible slot, preferring the opposite direction from the
     // anchor's screen edge. A two-slot strip therefore replaces the other
     // slot regardless of which window is active.
-    let replacement = visible
-        .iter()
-        .filter(|(ci, _)| *ci != anchor)
-        .min_by_key(|(_, r)| {
-            let x = (r.left as i64 + r.right as i64) / 2;
-            let on_other_side = if prefer_right {
-                x > anchor_x
-            } else {
-                x < anchor_x
-            };
-            (!on_other_side, (x - anchor_x).abs())
-        })
-        .map(|(ci, _)| cols[*ci][0]);
+    // The previous user-focused window is layer N-1. Prefer that column,
+    // but never let an off-screen or anchor-column tab displace the anchor.
+    let predecessor_col = previous
+        .and_then(|h| locate_tile(&cols, h).map(|(ci, _)| ci))
+        .filter(|&ci| ci != anchor && visible.iter().any(|(v, _)| *v == ci));
+    let replacement = predecessor_col
+        .map(|ci| cols[ci][0])
+        .or_else(|| {
+            visible
+                .iter()
+                .filter(|(ci, _)| *ci != anchor)
+                .min_by_key(|(_, r)| {
+                    let x = (r.left as i64 + r.right as i64) / 2;
+                    let on_other_side = if prefer_right {
+                        x > anchor_x
+                    } else {
+                        x < anchor_x
+                    };
+                    (!on_other_side, (x - anchor_x).abs())
+                })
+                .map(|(ci, _)| cols[*ci][0])
+        });
     match replacement {
         Some(target) => (Some(DropAt::Below(target)), Some(target)),
         // An intentionally full-width single column is the only slot. Keep
@@ -12997,11 +13007,18 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         if mgr.monitors[mi].layout == "scrolling" && !floating && !quiet && visible
                         {
                             let ws = &mgr.monitors[mi].workspaces[wi];
+                            let previous = WINDOW_MRU
+                                .lock()
+                                .unwrap()
+                                .iter()
+                                .copied()
+                                .find(|w| *w != prev_focus && ws.windows.contains(w));
                             scroll_anchor_admission(
                                 ws,
                                 &tiled_windows(ws),
                                 mgr.monitors[mi].work_area,
                                 &mgr.cfg,
+                                previous,
                             )
                         } else {
                             (None, None)
@@ -30296,7 +30313,7 @@ mod tests {
         let mut ws = strip_ws(&[A], &[]);
         ws.focused = A;
         assert_eq!(
-            scroll_anchor_admission(&ws, &[A], area, &cfg),
+            scroll_anchor_admission(&ws, &[A], area, &cfg, None),
             (Some(DropAt::After(A)), None),
             "new column must fill the empty half before stacking"
         );
@@ -30304,13 +30321,13 @@ mod tests {
         let mut ws = strip_ws(&[A, B], &[]);
         ws.focused = A;
         assert_eq!(
-            scroll_anchor_admission(&ws, &[A, B], area, &cfg),
+            scroll_anchor_admission(&ws, &[A, B], area, &cfg, None),
             (Some(DropAt::Below(B)), Some(B)),
             "focused left: new window must replace the right slot's visible tab"
         );
         ws.focused = B;
         assert_eq!(
-            scroll_anchor_admission(&ws, &[A, B], area, &cfg),
+            scroll_anchor_admission(&ws, &[A, B], area, &cfg, None),
             (Some(DropAt::Below(A)), Some(A)),
             "focused right: new window must replace the left slot's visible tab"
         );
@@ -30335,15 +30352,21 @@ mod tests {
         let mut ws = strip_ws(&[A, B, C, D], &[]);
         ws.focused = B;
         assert_eq!(
-            scroll_anchor_admission(&ws, &[A, B, C, D], area, &cfg),
+            scroll_anchor_admission(&ws, &[A, B, C, D], area, &cfg, None),
             (Some(DropAt::After(D)), None),
         );
-        let ws = strip_ws(&[A, B, C, D, E], &[]);
+        let mut ws = strip_ws(&[A, B, C, D, E], &[]);
+        ws.focused = B;
+        assert_eq!(
+            scroll_anchor_admission(&ws, &[A, B, C, D, E], area, &cfg, Some(E)),
+            (Some(DropAt::Below(E)), Some(E)),
+            "when all slots are full, use the most recently focused other layer"
+        );
         assert!(
-            scroll_anchor_admission(&ws, &[A, B, C, D, E], area, &cfg)
+            scroll_anchor_admission(&ws, &[A, B, C, D, E], area, &cfg, None)
                 .1
                 .is_some(),
-            "once full, a newcomer reuses a different slot"
+            "with no MRU match, a newcomer still reuses a different slot"
         );
     }
 

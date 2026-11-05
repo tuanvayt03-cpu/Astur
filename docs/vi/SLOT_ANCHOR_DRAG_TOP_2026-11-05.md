@@ -12,7 +12,7 @@
 
 1. A user's current focused window is the **slot anchor**. Adding a primary tile must never force the anchor off the visible scrolling viewport.
 2. **Free slot first**: when a default-width column fits the viewport's unused area, insert it there (e.g., 1/2 and 1/5 layouts). This is per monitor, using that monitor's work area.
-3. **Occupied viewport**: put the newcomer into the *other* visible column as its active tab, preserving the anchor and the displaced window's managed membership. Do not minimize, close, or independently recreate the old window. Switching focus back to the older tab restores it.
+3. **Occupied viewport**: prefer the last-used *other* visible column (layer N-1 from the window MRU), otherwise the nearest non-anchor visible column. Put the newcomer into that column as its active tab, preserving the anchor and the displaced window's managed membership. Do not minimize, close, or independently recreate the old window. Switching focus back to the older tab restores it.
    - A in left slot is active, B right: C replaces the displayed tab of B's slot.
    - B in right slot is active, A left: C replaces the displayed tab of A's slot.
    - If only one full-width scrolling column exists, do not silently shrink it; retain the legacy insertion contract.
