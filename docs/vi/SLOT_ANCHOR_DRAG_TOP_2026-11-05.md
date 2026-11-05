@@ -47,4 +47,14 @@
 
 ## Session handoff
 
-Update with final branch HEAD, commit, CI URL/result, worktree status and remaining live acceptance after verification.
+### 2026-11-05 source checkpoint and recovery
+
+- Original release worktree: `D:\Project\Astur`, branch `release/astur-vi-update-2.4.0.12`, baseline `a3fee38`, unmodified by this task.
+- Independent feature worktree: `D:\Project\Astur-slot-anchor-20261105`, branch `feat/slot-anchor-placement-20261105` tracking `origin/feat/slot-anchor-placement-20261105`. Parent feature baseline `de2de5e` from Window Policy Engine PR #7. This branch is draft PR #8, targeting PR #7 rather than main.
+- Implementation/code head `a1d0eddb645b4cd0162634e0a0ddf73a1338afad`. Source commits: `765793a` initial feature, `fd4b1ac` format, `5d07022` focused-slot/MRU test, `a1d0edd` rustfmt.
+- Fresh Windows CI on that source head: https://github.com/tuanvayt03-cpu/Astur/actions/runs/41967602226 — **SUCCESS** for Format, translation catalog, preview packaging contract, notification/click-blocker smoke, Clippy (`-D warnings`), full Rust tests and release workspace build. Prior failed runs were resolved without deleting or weakening tests.
+- Local checks on source: `py scripts/test_i18n_inventory.py`, `py scripts/test_preview_packaging.py`, `py scripts/test_upgrade_packaging.py`, Zalo click-blocker self-test and `git diff --check` passed.
+- Build artifact workflow now supports both push and PR head events for the feature branch. Verify its ZIP on the next complete CI run. This is **preview only**, not an installation or promotion.
+- Outstanding gate: live desktop acceptance for 1-monitor and 2-monitor cases (including 1/2, 1/4, 1/5 scrolling slots, native caption and Alt drag, F11/maximize, Zalo popup and MT5 input). Never claim this gate passed from CI alone; keep PR #8 and base PR #7 draft.
+- Execution ownership: single primary writer in isolated feature worktree. No active desktop window, installed Astur instance, registry, user configuration, or unrelated user work mutated.
+- Next: on resuming, resolve current HEAD and CI run afresh, collect portable preview and verify package provenance; perform safe manual desktop acceptance with disposable test windows before merging or releasing. If any live defect appears, fix in PR #8 without disturbing the installed release.

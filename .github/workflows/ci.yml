@@ -65,14 +65,14 @@ jobs:
         run: cargo build --release --workspace
 
       - name: Record slot-anchor preview provenance
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/slot-anchor-placement-20261105'
+        if: github.head_ref == 'feat/slot-anchor-placement-20261105' || (github.event_name == 'push' && github.ref == 'refs/heads/feat/slot-anchor-placement-20261105')
         shell: pwsh
         run: |
           "Commit: $env:GITHUB_SHA" | Set-Content target/release/SLOT_ANCHOR_BUILD_INFO.txt
           "CI: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" | Add-Content target/release/SLOT_ANCHOR_BUILD_INFO.txt
 
       - name: Upload slot-anchor portable preview
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/slot-anchor-placement-20261105'
+        if: github.head_ref == 'feat/slot-anchor-placement-20261105' || (github.event_name == 'push' && github.ref == 'refs/heads/feat/slot-anchor-placement-20261105')
         uses: actions/upload-artifact@v4
         with:
           name: Astur-SlotAnchor-Preview-${{ github.sha }}
