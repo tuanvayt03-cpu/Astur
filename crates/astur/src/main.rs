@@ -4240,8 +4240,9 @@ struct Strip {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ColMeta {
-    width: f32, // fraction of the view (layout::col_px)
-    tabbed: bool,
+    width: f32,       // fraction of the view (layout::col_px)
+    tabbed: bool,     // explicitly toggled by the user; controls the visible tab bar
+    auto_stack: bool, // overflow slot reuse: one shown window, NO Astur tab bar
     // Last-focused tile: the tab a tabbed column shows while focus is
     // elsewhere, and where focus lands when it comes back to the column.
     active: isize,
@@ -4294,7 +4295,8 @@ impl Strip {
                         .iter()
                         .map(|w| self.weights.get(w).copied().unwrap_or(1.0))
                         .collect(),
-                    tabbed: meta.is_some_and(|m| m.tabbed),
+                    tabbed: col.len() > 1 && meta.is_some_and(|m| m.tabbed),
+                    auto_stack: col.len() > 1 && meta.is_some_and(|m| m.auto_stack),
                     active: self.active_tab(col, focused),
                 }
             })
@@ -4309,7 +4311,7 @@ impl Strip {
         let cols = self.columns(tiled);
         let mut out = Vec::new();
         for (col, sc) in cols.iter().zip(self.strip_cols(&cols, focused, 1.0)) {
-            if sc.tabbed {
+            if sc.tabbed || sc.auto_stack {
                 out.extend(
                     col.iter()
                         .enumerate()
@@ -4354,6 +4356,19 @@ impl Strip {
         }
         let used: Vec<u32> = self.col_of.values().copied().collect();
         self.cols.retain(|id, _| used.contains(id));
+        // Automatic overflow stacking belongs to a MULTI-member slot only.
+        // Closing the previous occupant must not leave an orphan auto-tab
+        // presentation on a single File Explorer or Chrome window.
+        for col in self.columns(tiled) {
+            if col.len() == 1 {
+                if let Some(id) = self.col_of.get(&col[0]).copied() {
+                    if let Some(meta) = self.cols.get_mut(&id) {
+                        meta.auto_stack = false;
+                        meta.active = col[0];
+                    }
+                }
+            }
+        }
     }
 
     fn new_id(&mut self) -> u32 {
@@ -4382,6 +4397,7 @@ impl Strip {
         self.cols.entry(id).or_insert(ColMeta {
             width: default,
             tabbed: false,
+            auto_stack: false,
             active: h,
             restore_width: None,
         })
@@ -4423,6 +4439,7 @@ impl Strip {
     fn toggle_tabbed(&mut self, h: isize, default: f32) {
         let m = self.col_mut(h, default);
         m.tabbed = !m.tabbed;
+        m.auto_stack = false; // explicit ON/OFF always wins over automatic slot reuse
         m.active = h;
     }
 
@@ -5156,7 +5173,7 @@ impl Manager {
         let Some((_, _, was_floating)) = self.detach_window(h) else {
             return false;
         };
-        self.insert_window(h, to_mi, to_wi, at, was_floating);
+        self.insert_window(h, to_mi, to_wi, at, was_floating, true);
         true
     }
 
@@ -5174,11 +5191,12 @@ impl Manager {
         wi: usize,
         at: Option<DropAt>,
         floating: bool,
+        reveal_new: bool,
     ) {
         let scrolling = !floating && self.monitors[mi].layout == "scrolling";
         let ws = &mut self.monitors[mi].workspaces[wi];
         if scrolling {
-            let tiled = unsafe { tiled_windows(ws) };
+            let tiled = unsafe { scroll_layout_windows(ws) };
             ws.insert_in_strip(&tiled, h, at);
         } else {
             match at {
@@ -5190,7 +5208,7 @@ impl Manager {
             ws.floating.push(h);
         }
         ws.focused = h;
-        if scrolling {
+        if scrolling && reveal_new {
             unsafe { ensure_visible(self, mi, wi) };
         }
     }
@@ -8531,6 +8549,43 @@ fn scroll_slot_mostly_visible(slot: RECT, view: RECT) -> bool {
     overlap * 4 >= width * 3
 }
 
+/// A parked member of a column must be revealed on focus, even if the
+/// focused field was already set to it by Cmd::Focused. The last displayed
+/// member is stored in ColMeta.active until strip_after_command, so this
+/// check uses the pre-focus presentation state, not the future layout.
+fn slot_member_was_parked(strip: &Strip, tiled: &[isize], h: isize) -> bool {
+    let cols = strip.columns(tiled);
+    let Some((ci, _)) = locate_tile(&cols, h) else {
+        return false;
+    };
+    let col = &cols[ci];
+    col.len() > 1
+        && strip
+            .col_meta(col)
+            .is_some_and(|m| (m.tabbed || m.auto_stack) && m.active != h)
+}
+
+/// Detect an existing HWND physically parked outside every monitor.
+/// Geometry for its NEW focused layout may report Full already even while
+/// Windows has not received the unpark placement.
+unsafe fn window_is_physically_parked(h: isize) -> bool {
+    let hwnd = hwnd_from(h);
+    if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+        return false;
+    }
+    let mut r = RECT::default();
+    GetWindowRect(hwnd, &mut r).is_ok() && MonitorFromRect(&r, MONITOR_DEFAULTTONULL).0.is_null()
+}
+
+/// Must one activation actually retile a stacked slot? Keep this predicate
+/// separate from the 'is target rect visible' check: the latter describes a
+/// desired future state, not the HWND's current physical location.
+unsafe fn slot_activation_needs_retile(ws: &Workspace, h: isize) -> bool {
+    slot_member_was_parked(&ws.strip, &scroll_layout_windows(ws), h)
+        || window_is_physically_parked(h)
+        || was_hidden_by_us(h)
+}
+
 /// Scroll `h`'s tile back into view when it sits on an ACTIVE scrolling
 /// workspace and is substantially offscreen: a taskbar/Alt+Tab activation,
 /// or a click on a peeking window, or an app activating itself
@@ -8543,15 +8598,26 @@ unsafe fn strip_reveal(mgr: &mut Manager, h: isize) {
     }) else {
         return;
     };
+    let recover = slot_activation_needs_retile(&mgr.monitors[mi].workspaces[wi], h);
     let Some((slot, visibility)) = tile_slot(mgr, h) else {
         return;
     };
-    if visibility == Vis::Full
-        || (visibility != Vis::Park && scroll_slot_mostly_visible(slot, mgr.monitors[mi].work_area))
+    if !recover
+        && (visibility == Vis::Full
+            || (visibility != Vis::Park
+                && scroll_slot_mostly_visible(slot, mgr.monitors[mi].work_area)))
     {
         return;
     }
     mgr.monitors[mi].workspaces[wi].focused = h;
+    // Recover only Astur's OWN stale hide of a window on this ACTIVE
+    // workspace. Never undo an app's intentional SW_HIDE (close to tray).
+    if was_hidden_by_us(h) && h != SCRATCHPAD_HWND.load(Ordering::Relaxed) {
+        unmark_hidden_by_us(h);
+        SUPPRESS.store(true, Ordering::Relaxed);
+        let _ = ShowWindow(hwnd_from(h), SW_SHOWNA);
+        SUPPRESS.store(false, Ordering::Relaxed);
+    }
     // Before the retile: the motion ends each window's dim at global_focus
     // (BarFocus arrives here without it).
     mgr.focused_mon = mi;
@@ -13186,7 +13252,10 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         } else {
                             (None, None)
                         };
-                    mgr.insert_window(h, mi, wi, at, floating);
+                    // Keep the old anchor stable until slot membership and
+                    // stack presentation are committed; the fallback (no
+                    // policy slot) retains legacy reveal behavior.
+                    mgr.insert_window(h, mi, wi, at, floating, at.is_none());
                     if let Some(target) = tab_target {
                         // This is a visibility replacement, not a minimize or
                         // a new scrolling column. The old window remains a tab
@@ -13194,7 +13263,9 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         let default = mgr.cfg.scroll_default_width;
                         let ws = &mut mgr.monitors[mi].workspaces[wi];
                         let col = ws.strip.col_mut(target, default);
-                        col.tabbed = true;
+                        if !col.tabbed {
+                            col.auto_stack = true;
+                        }
                         col.active = h;
                     }
                     // Manager::insert_window originally ensured visibility
@@ -13368,6 +13439,10 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         .take()
                         .is_some_and(|(w, until)| w == h && GetTickCount64() <= until);
                     if !skip_reveal {
+                        // The new-window foreground echo is not user intent
+                        // and must not recenter the anchor while placement is
+                        // still pending. An actual later taskbar focus of a
+                        // parked older occupant goes through strip_reveal.
                         strip_reveal(mgr, h);
                     }
                 } else {
@@ -13401,19 +13476,32 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
         }
         Cmd::ActivateWindow(h) => {
             if let Some((mi, wi)) = mgr.locate(h) {
+                // Restore before an active-workspace reveal, since iconic
+                // HWNDs do not get layout slots. On a HIDDEN workspace keep
+                // the restore after the switch so it cannot surface on the
+                // wrong desktop. Both paths then retile the restored slot.
+                let hwnd = hwnd_from(h);
+                let iconic = IsIconic(hwnd).as_bool();
+                let hidden_workspace = wi != mgr.monitors[mi].active;
+                if iconic && !hidden_workspace {
+                    let _ = ShowWindow(hwnd, SW_RESTORE);
+                }
                 mgr.focused_mon = mi;
                 mgr.monitors[mi].workspaces[wi].focused = h;
-                if wi != mgr.monitors[mi].active {
+                if hidden_workspace {
                     switch_monitor_workspace(mgr, mi, wi);
+                    if iconic {
+                        let _ = ShowWindow(hwnd, SW_RESTORE);
+                        retile_monitor(mgr, mi);
+                    }
                 } else {
                     strip_reveal(mgr, h);
-                }
-                // focus_window's SW_SHOW leaves a minimised window minimised.
-                // Restored here, after the switch: on a hidden workspace a
-                // restore from the caller's thread would show it on this one.
-                let hwnd = hwnd_from(h);
-                if IsIconic(hwnd).as_bool() {
-                    let _ = ShowWindow(hwnd, SW_RESTORE);
+                    if iconic {
+                        // After Windows restores a minimized HWND, its old
+                        // normal rect may be on-screen but not match the
+                        // reserved Astur slot; force one placement.
+                        retile_monitor(mgr, mi);
+                    }
                 }
                 touch_window_mru(h);
                 focus_window(h);
@@ -13465,7 +13553,24 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
             // App button clicked: focus that window (same effect as clicking
             // it, so a parked strip tile scrolls into view first).
             if IsWindow(hwnd_from(h)).as_bool() {
+                // The bar can refer to windows from other workspaces. Never
+                // restore one onto the currently shown desktop before its
+                // own workspace is switched in by the activation path.
+                let active_here = mgr
+                    .locate(h)
+                    .is_some_and(|(mi, wi)| wi == mgr.monitors[mi].active);
+                let restored = active_here && IsIconic(hwnd_from(h)).as_bool();
+                if restored {
+                    let _ = ShowWindow(hwnd_from(h), SW_RESTORE);
+                }
                 strip_reveal(mgr, h);
+                if restored {
+                    if let Some((mi, wi)) = mgr.locate(h) {
+                        if wi == mgr.monitors[mi].active {
+                            retile_monitor(mgr, mi);
+                        }
+                    }
+                }
                 focus_window(h);
             }
         }
@@ -14286,14 +14391,21 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 return;
             };
             let ws = &mgr.monitors[mi].workspaces[wi];
-            let cols = ws.strip.columns(&tiled_windows(ws));
+            let cols = ws.strip.columns(&scroll_layout_windows(ws));
             if let Some(t) = locate_tile(&cols, w).and_then(|(ci, _)| cols[ci].get(i).copied()) {
                 mgr.focused_mon = mi;
+                let restored = IsIconic(hwnd_from(t)).as_bool();
+                if restored {
+                    let _ = ShowWindow(hwnd_from(t), SW_RESTORE);
+                }
                 // Like a bar app button (BarFocus): the clicked tab becomes
                 // the focus (so the shown tab), the strip scrolls a peeking
                 // column in, and the cursor stays on the tab bar for the
                 // next click instead of warping to the window.
                 strip_reveal(mgr, t);
+                if restored {
+                    retile_monitor(mgr, mi);
+                }
                 focus_window(t);
             }
         }
@@ -18438,6 +18550,11 @@ unsafe fn tab_bars_build(mgr: &Manager) -> Vec<TabBarData> {
         let out = strip_out(&ws.strip, &tiled, ws.focused, m.work_area, &mgr.cfg, tab_h);
         let map = PlaceMap::new(mgr, mi, m.active);
         for (ci, rect, active) in tab_bar_slots(&ws.strip, &cols, ws.focused, &out, &map) {
+            // A single-window column or an automatically stacked slot is
+            // never a user-requested tab bar, even with stale metadata.
+            if cols[ci].len() < 2 || ws.strip.col_meta(&cols[ci]).is_none_or(|m| !m.tabbed) {
+                continue;
+            }
             // The bar's icon size, so the icons share its cache entries (and
             // nothing a size change retires stays behind); none if too tall.
             let icon_px = dpi_px(BAR_ICON_PX_CFG.load(Ordering::Relaxed), dpi);
@@ -29546,6 +29663,7 @@ mod tests {
         ColMeta {
             width,
             tabbed: false,
+            auto_stack: false,
             active: 0,
             restore_width: None,
         }
@@ -29756,6 +29874,75 @@ mod tests {
         assert_eq!(s.strip_cols(&s.columns(&t), D, 0.5)[0].active, 0);
         s.toggle_tabbed(A, 0.5);
         assert!(s.hidden_tabs(&t, D).is_empty(), "stacked again");
+    }
+
+    #[test]
+    fn automatic_overflow_is_not_manual_tab_mode() {
+        let cfg = Config::defaults();
+        let mut ws = strip_ws(&[A, B], &[]);
+        ws.focused = A;
+        let area = rect(0, 0, 1000, 700);
+        let (at, destination) = scroll_anchor_admission(&ws, &[A, B], area, &cfg, Some(B));
+        assert_eq!(at, Some(DropAt::Below(B)));
+        assert_eq!(destination, Some(B));
+        ws.insert_in_strip(&[A, B], C, at);
+        let m = ws.strip.col_mut(B, cfg.scroll_default_width);
+        m.auto_stack = true;
+        m.active = C;
+        assert!(!m.tabbed, "automatic placement MUST NOT turn on tab UI");
+        assert_eq!(ws.strip.columns(&[A, B, C]), vec![vec![A], vec![B, C]]);
+        assert_eq!(ws.strip.hidden_tabs(&[A, B, C], C), vec![B]);
+        let geometry = strip_out(&ws.strip, &[A, B, C], C, area, &cfg, 26);
+        assert_eq!(geometry.tiles[1], geometry.tiles[2]);
+        assert!(geometry.tab_bars.iter().all(Option::is_none));
+        assert!(slot_member_was_parked(&ws.strip, &[A, B, C], B));
+        assert!(!slot_member_was_parked(&ws.strip, &[A, B, C], C));
+
+        // Cmd::Focused updates focused BEFORE strip_reveal; ColMeta.active
+        // still identifies the previously shown occupant until bookkeeping.
+        ws.focused = B;
+        assert!(slot_member_was_parked(&ws.strip, &[A, B, C], B));
+        ws.strip.note_focus(B);
+        assert!(!slot_member_was_parked(&ws.strip, &[A, B, C], B));
+        assert_eq!(ws.strip.hidden_tabs(&[A, B, C], B), vec![C]);
+    }
+
+    #[test]
+    fn a_single_explicit_tab_cannot_create_an_orphan_title_bar() {
+        let cfg = Config::defaults();
+        let mut ws = strip_ws(&[A], &[]);
+        ws.strip.toggle_tabbed(A, cfg.scroll_default_width);
+        assert!(ws.strip.col_meta(&[A]).unwrap().tabbed);
+        let area = rect(0, 0, 1000, 700);
+        let out = strip_out(&ws.strip, &[A], A, area, &cfg, 26);
+        assert!(out.tab_bars.iter().all(Option::is_none));
+        assert_eq!(out.tiles.len(), 1);
+        assert_eq!(out.tiles[0].top, cfg.outer_gap);
+    }
+
+    #[test]
+    fn manual_tab_toggle_overrides_automatic_stack_and_singleton_cleans_up() {
+        let mut ws = strip_ws(&[A, B], &[(A, 1), (B, 1)]);
+        let meta = ws.strip.col_mut(A, 0.5);
+        meta.auto_stack = true;
+        meta.active = B;
+        ws.strip.toggle_tabbed(A, 0.5);
+        let meta = ws.strip.col_meta(&[A, B]).unwrap();
+        assert!(meta.tabbed);
+        assert!(!meta.auto_stack, "manual ON must clear implicit mode");
+        ws.strip.toggle_tabbed(A, 0.5);
+        assert!(!ws.strip.col_meta(&[A, B]).unwrap().tabbed);
+        ws.strip.col_mut(A, 0.5).auto_stack = true;
+        ws.windows.retain(|&h| h != A);
+        ws.strip.forget(A);
+        ws.strip.tidy(&ws.windows, &[B]);
+        let meta = ws.strip.col_meta(&[B]).unwrap();
+        assert!(
+            !meta.auto_stack,
+            "single Explorer cannot keep automatic tab"
+        );
+        assert_eq!(meta.active, B);
+        assert!(ws.strip.hidden_tabs(&[B], B).is_empty());
     }
 
     #[test]

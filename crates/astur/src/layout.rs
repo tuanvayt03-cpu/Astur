@@ -324,7 +324,8 @@ pub(crate) struct StripCol {
     pub width: f32,
     /// One entry per tile, top to bottom; heights are proportional to these.
     pub weights: Vec<f32>,
-    pub tabbed: bool,
+    pub tabbed: bool,     // show a user-requested tab bar
+    pub auto_stack: bool, // implicit overflow uses same rectangle with no bar
     /// Active tab. Every tab gets the same rect here and the WM parks the
     /// inactive ones, so the geometry itself never reads it.
     pub active: usize,
@@ -464,13 +465,20 @@ pub(crate) fn strip_layout(
             right,
             bottom: top + h,
         };
-        if col.tabbed {
-            // The tile keeps at least MIN_TILE whatever tab_bar_height says.
-            let bar = tab_h.min(h - MIN_TILE).max(0);
-            out.tab_bars[i] = Some(RECT {
-                bottom: top + bar,
-                ..full
-            });
+        if col.tabbed || col.auto_stack {
+            // Only explicit tab mode reserves vertical space and draws a bar.
+            // Overflow stacking must never create a black title strip.
+            let bar = if col.tabbed {
+                tab_h.min(h - MIN_TILE).max(0)
+            } else {
+                0
+            };
+            if col.tabbed {
+                out.tab_bars[i] = Some(RECT {
+                    bottom: top + bar,
+                    ..full
+                });
+            }
             let tile = RECT {
                 top: top + bar,
                 ..full
@@ -922,6 +930,7 @@ mod tests {
             width,
             weights: weights.to_vec(),
             tabbed: false,
+            auto_stack: false,
             active: 0,
         }
     }
@@ -931,6 +940,33 @@ mod tests {
             tabbed: true,
             ..col(width, &vec![1.0; tiles])
         }
+    }
+
+    #[test]
+    fn automatic_slot_stack_shares_rect_but_never_draws_a_tab_bar() {
+        let area = RECT {
+            left: 0,
+            top: 0,
+            right: 1000,
+            bottom: 700,
+        };
+        let stacked = StripCol {
+            auto_stack: true,
+            ..col(0.5, &[1.0, 1.0])
+        };
+        let out = strip_layout(area, &[col(0.5, &[1.0]), stacked], 0, 10, 10, 26);
+        assert_eq!(out.tiles.len(), 3);
+        assert_eq!(out.tiles[1], out.tiles[2]);
+        assert_eq!(
+            out.tiles[1].top, 10,
+            "implicit stack keeps full tile height"
+        );
+        assert!(out.tab_bars.iter().all(Option::is_none));
+
+        let manual = tabbed(0.5, 2);
+        let shown = strip_layout(area, &[manual], 0, 10, 10, 26);
+        assert_eq!(shown.tiles[0].top, 36, "manual tab reserves a bar");
+        assert!(shown.tab_bars[0].is_some());
     }
 
     #[test]
