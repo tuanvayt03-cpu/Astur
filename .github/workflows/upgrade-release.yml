@@ -2,7 +2,7 @@ name: Astur VI in-place update (preview)
 
 on:
   push:
-    branches: ["feat/vi-full-update-popup-v2", "release/astur-vi-update-2.4.0.15"]
+    branches: ["feat/vi-full-update-popup-v2", "release/astur-vi-update-2.4.0.16"]
     paths:
       - ".github/workflows/upgrade-release.yml"
       - "packaging/astur-vi-update.iss"
@@ -17,14 +17,14 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  UPGRADE_TAG: astur-vi-update-2.4.0.15
-  UPGRADE_VERSION: 2.4.0.15
+  UPGRADE_TAG: astur-vi-update-2.4.0.16
+  UPGRADE_VERSION: 2.4.0.16
 
 jobs:
   upgrade:
     # Dedicated one-shot update branch, scoped to an explicit user-requested
     # release. All feature/PR branches continue to run CI only.
-    if: github.ref == 'refs/heads/release/astur-vi-update-2.4.0.15' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/release/astur-vi-update-2.4.0.16' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -72,7 +72,7 @@ jobs:
       - name: Upload bilingual Settings screenshots for review
         uses: actions/upload-artifact@v6
         with:
-          name: astur-settings-en-vi-2.4.0.15
+          name: astur-settings-en-vi-2.4.0.16
           path: dist/ui-renders/*.png
           if-no-files-found: error
 
@@ -151,9 +151,9 @@ jobs:
           $oldBinary = Join-Path $backup 'Astur.exe'
           if (-not (Test-Path $oldBinary)) { throw 'Original binary rollback backup missing' }
           if ((Get-FileHash $oldBinary -Algorithm SHA256).Hash -ne $previousHash) { throw 'Rollback binary hash mismatch' }
-          $priorBackup = Join-Path $env:LOCALAPPDATA 'Astur\UpgradeBackup\before-vi-update-2.4.0.15'
+          $priorBackup = Join-Path $env:LOCALAPPDATA 'Astur\UpgradeBackup\before-vi-update-2.4.0.16'
           $priorBinary = Join-Path $priorBackup 'Astur.exe'
-          if (-not (Test-Path $priorBinary)) { throw 'Immediate pre-2.4.0.15 rollback binary missing' }
+          if (-not (Test-Path $priorBinary)) { throw 'Immediate pre-2.4.0.16 rollback binary missing' }
           if ((Get-FileHash $priorBinary -Algorithm SHA256).Hash -ne $previousHash) { throw 'Immediate rollback binary hash mismatch' }
           foreach ($backupDir in @($backup, $priorBackup)) {
             foreach ($f in @('astur-settings.exe','astur.conf','navbar.conf')) {

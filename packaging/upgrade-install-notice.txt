@@ -1,4 +1,4 @@
-ASTUR VI UPDATE 2.4.0.15 (PREVIEW)
+ASTUR VI UPDATE 2.4.0.16 (PREVIEW)
 
 This installer UPDATES your existing Astur installation IN PLACE.
 It is an experimental community fork, NOT an official stable upstream release.
@@ -17,30 +17,27 @@ Astur.exe, astur-settings.exe, astur.conf and navbar.conf (when available).
 First original snapshot:
 %LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.1
 Immediately previous installation:
-%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.15
+%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.16
 These snapshots are never overwritten on a repeat update.
 To roll back: quit Astur, restore the saved binaries/config, or reinstall
 the previously used installer. Keep the other manager stopped.
 
-NEW IN 2.4.0.15
-- Opened windows first use an empty visible slot. If slots are full, a new
-  window occupies the previously used OTHER slot as a tab (layer N-1),
-  leaving the actively focused window anchored in its present slot.
-  Prior windows remain managed; none is automatically closed or minimized.
-- New: minimized windows reserve their scrolling slot, so minimizing CS1
-  does not relocate CS2 into CS1. Restoring a window returns it to its slot.
-- New: window admissions and delayed focus events preserve the actively
-  used slot; new windows use a free or non-anchor visible tab as intended.
-- New: Alt+left-drag or native title-bar drag can exchange occupied slots
-  even when a slot contains multiple tabs. Drop targeting uses Astur's
-  stable layout geometry; left/right/below drop zones still work.
-- New: nearly-visible half-width columns no longer jump/recenter on focus
-  solely because the outermost pixels are clipped.
-- Dragging a normal resizable app to the physical top edge of its monitor
-  maximizes it using native Windows behavior. A click without movement,
-  edge resize and native F11 are not reinterpreted as a drag-maximize.
-- Retains Window Policy Engine v1, background spawn protection, Zalo
-  notification exclusions, and previous multi-display fixes.
+NEW IN 2.4.0.16
+- A new window fills an empty visible slot first; if all visible slots are
+  full, it uses the previously focused OTHER slot (layer N-1), keeping the
+  active anchor in place. The older occupant stays managed, not minimized.
+- Automatic slot replacement NO LONGER enables a manual Astur tab bar.
+  The black title strip is shown only after explicit Alt+Shift+T and only
+  when a column has at least two windows. A lone File Explorer shows none.
+- Taskbar, Alt+Tab and Astur app-bar activation of an older parked occupant
+  now triggers physical unpark/retiling, not only an internal focus flag.
+  Astur-owned stale SW_HIDE can be recovered without overriding app hiding.
+- Manual Tab ON/OFF is independent from the automatic slot stack, and
+  toggling it clears the automatic presentation state.
+- Minimizing a window retains its scrolling slot, and restoring a minimized
+  window places it back in that slot. Tab clicks use consistent indexes.
+- Retains flexible within/between-monitor Alt or title-bar dragging, native
+  top-edge maximize, and prior Window Policy Engine/Zalo protections.
 
 ACCEPTANCE LIMITATIONS
 The code and installer are tested on isolated Windows CI. The real

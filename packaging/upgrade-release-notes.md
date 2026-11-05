@@ -1,3 +1,29 @@
+# Astur VI Update 2.4.0.16 (Preview) — Auto Slot Stack without unwanted tabs
+
+Source baseline: `d857e72fb7a547e6d4559a4e86e45d3220076da7` on `fix/astur-auto-slot-separate-20261105`, building on Astur VI 2.4.0.15. Final release tag must point to the exact committed release branch head.
+
+## Fixes in 2.4.0.16
+
+- **No unsolicited black tab strip:** Opening CS3 when the visible slots are full now uses a separate automatic slot-stack state. Only `Alt+Shift+T` explicitly switches Manual Tab Mode on/off. A single File Explorer or Chrome window does not get an Astur tab bar.
+- **CS3 respects the active anchor:** An auto-admitted window uses a free viewport slot first, or the previous N-1/non-anchor slot when the view is full. It no longer scrolls the strip prematurely before the slot membership is committed.
+- **One activation should recover the prior occupant:** Taskbar/Alt+Tab activation detects the previously parked member or an actual HWND parked outside all monitors. Astur performs a real retile/unpark instead of trusting the future layout's `Vis::Full` state. Astur-owned stale SW_HIDE on an active workspace can be repaired without undoing app-owned hide/scratchpad semantics.
+- **Minimized window recovery:** App-bar actions and manually clicked tabs restore an iconic HWND before placing it into its reserved slot; hidden-workspace activations retain switch-before-restore order. TabClick uses the same minimized-placeholder list as the tab bar.
+- **Explicit Tab OFF is real OFF:** Manual toggles clear automatic state. When a stack shrinks to one member, stale auto state is cleared and no tab bar/title space is rendered.
+- Existing 2.4.0.15 scrolling slot geometry, flexible drag/swaps, Zalo notification exclusions, native top-edge maximize and previous backup contract remain.
+
+## Verification and rollout boundary
+
+- Source CI includes rustfmt, Clippy with warnings denied, regression/unit tests (implicit stack, visible tab bar, focused previously parked occupant, manual ON/OFF and singleton) and Windows release build.
+- Dedicated installer CI must pass bilingual Settings rendering, original-AppId in-place update, backup/uninstall smoke, SHA256SUMS generation and GitHub prerelease publication before publication is claimed.
+- **Live one/two-display desktop QA is still PENDING**. Do not claim production/full UI PASS or silently install over a running Astur instance with MT5.
+- The installer is UNSIGNED and preview-only. Quit Astur before a user-initiated upgrade. Never bypass Defender/SmartScreen security warnings to run an untrusted file. Version 2.4.0.15 remains available for rollback.
+
+Detailed development order and acceptance: `docs/vi/AUTO_SLOT_TAB_VISIBILITY_REPAIR_20261105.md`. Draft implementation PR #10: https://github.com/tuanvayt03-cpu/Astur/pull/10
+
+---
+
+## Previous release 2.4.0.15
+
 # Astur VI Update 2.4.0.15 (Preview) — Stable scrolling slots
 
 **Source:** `release/astur-vi-update-2.4.0.15`, based on verified fix commit `1be70f95f376ece2ad6bb2f8f893cb6591c3d5fc` and the earlier 2.4.0.14 release. The release tag must match the final release branch commit exactly.
