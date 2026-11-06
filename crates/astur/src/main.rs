@@ -4809,11 +4809,13 @@ fn scroll_slot_swap_allowed(
     let Some((target_col, _)) = locate_tile(&cols, target) else {
         return false;
     };
-    // A narrow 1/4-width drop zone made a near-centre mouse release
+    // The former 1/4-width edge zone made a near-centre mouse release
     // unexpectedly turn into an insertion/recenter, which looks like a
     // locked slot. Reserve only the outer eighth for explicit edge insert.
-    let q = (target_rect.right - target_rect.left) / 8;
-    source_col != target_col && pt.x >= target_rect.left + q && pt.x < target_rect.right - q
+    let edge = scroll_drop_edge(target_rect.right - target_rect.left);
+    source_col != target_col
+        && pt.x >= target_rect.left + edge
+        && pt.x < target_rect.right - edge
 }
 
 /// A real drag released at the physical top edge maximizes the window. The
@@ -4827,10 +4829,17 @@ fn drag_reaches_top_edge(pt: POINT, monitor: RECT, moved: bool) -> bool {
         && pt.y <= monitor.top + 20
 }
 
+/// The width of an explicit insertion edge. Keep this identical in the
+/// before/after drop-zone and swap eligibility: inconsistent thresholds
+/// previously previewed an insertion while the release performed a swap.
+fn scroll_drop_edge(width: i32) -> i32 {
+    (width / 8).max(1)
+}
+
 /// The scrolling drop zone of an Alt+left-drag released at `pt`
-/// (plan/scrolling.md "Keys"). On window `t` (rect `r`): the left quarter is
-/// a new column before it, the right quarter one after it, the middle its own
-/// column right under it. On no window: None (stay put) inside the dragged
+/// (plan/scrolling.md "Keys"). On window `t` (rect `r`): the outer eighth
+/// inserts a column before/after; the central 75% selects its occupied slot.
+/// With no target: None (stay put) inside the dragged
 /// window's own slot `own`, since a drag that went nowhere must not reorder;
 /// elsewhere a new column at the strip end on that side of `view`, the work
 /// area. ponytail: a drop in the gap between two columns also goes to an end;
@@ -4842,10 +4851,10 @@ fn drop_zone(
     view: RECT,
 ) -> Option<DropAt> {
     if let Some((t, r)) = target {
-        let q = (r.right - r.left) / 4;
-        return Some(if pt.x < r.left + q {
+        let edge = scroll_drop_edge(r.right - r.left);
+        return Some(if pt.x < r.left + edge {
             DropAt::Before(t)
-        } else if pt.x >= r.right - q {
+        } else if pt.x >= r.right - edge {
             DropAt::After(t)
         } else {
             DropAt::Below(t)
@@ -13359,18 +13368,13 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         } else {
                             (None, None)
                         };
-                    if log_on(LOG_DEBUG)
-                        && mgr.monitors[mi].layout == "scrolling"
-                        && !floating
-                    {
+                    if log_on(LOG_DEBUG) && mgr.monitors[mi].layout == "scrolling" && !floating {
                         let ws = &mgr.monitors[mi].workspaces[wi];
                         let tiled = scroll_layout_windows(ws);
                         let cols = ws.strip.columns(&tiled);
-                        let full_width = cols.iter().any(|col| {
-                            ws.strip
-                                .col_meta(col)
-                                .is_some_and(|m| m.width >= 0.99)
-                        });
+                        let full_width = cols
+                            .iter()
+                            .any(|col| ws.strip.col_meta(col).is_some_and(|m| m.width >= 0.99));
                         log_debug!(
                             "scroll admission hwnd={h:#x} monitor={mi} workspace={wi} anchor={prev_focus:#x} columns={} full_width={full_width} offset={} at={at:?} stack={tab_target:?}",
                             cols.len(),
@@ -20656,7 +20660,10 @@ unsafe extern "system" fn win_event_proc(
                 && native_geometry_was_moved(
                     initial,
                     rect,
-                    POINT { x: start_x, y: start_y },
+                    POINT {
+                        x: start_x,
+                        y: start_y,
+                    },
                     pt,
                 );
             let as_move = source == h
@@ -26728,7 +26735,8 @@ mod tests {
         let before = rect(100, 200, 800, 700);
         let after = rect(420, 205, 1120, 705);
         assert!(native_geometry_was_moved(
-            before, after,
+            before,
+            after,
             POINT { x: 400, y: 220 },
             POINT { x: 720, y: 225 },
         ));
@@ -26741,14 +26749,16 @@ mod tests {
         ));
         // A click with no actual window translation remains a click.
         assert!(!native_geometry_was_moved(
-            before, before,
+            before,
+            before,
             POINT { x: 300, y: 220 },
             POINT { x: 310, y: 225 },
         ));
         // An in-app pointer movement that never moved the top-level HWND
         // must not be interpreted as moving a Chrome tab/window.
         assert!(!native_geometry_was_moved(
-            before, before,
+            before,
+            before,
             POINT { x: 300, y: 220 },
             POINT { x: 620, y: 220 },
         ));
@@ -31259,12 +31269,14 @@ mod tests {
     }
 
     #[test]
-    fn a_drop_picks_the_window_quarter_its_own_slot_or_a_strip_end() {
+    fn a_drop_picks_the_window_narrow_edge_its_own_slot_or_strip_end() {
         let view = rect(0, 0, 1920, 1080);
         let t = Some((A, rect(400, 0, 800, 1080)));
         let at = |x, y, own| drop_zone(POINT { x, y }, t, own, view);
-        assert_eq!(at(450, 500, None), Some(DropAt::Before(A)));
-        assert_eq!(at(700, 500, None), Some(DropAt::After(A)));
+        assert_eq!(at(425, 500, None), Some(DropAt::Before(A)));
+        assert_eq!(at(450, 500, None), Some(DropAt::Below(A)));
+        assert_eq!(at(700, 500, None), Some(DropAt::Below(A)));
+        assert_eq!(at(750, 500, None), Some(DropAt::After(A)));
         assert_eq!(at(799, 500, None), Some(DropAt::After(A)));
         assert_eq!(at(600, 500, None), Some(DropAt::Below(A)));
         let none = |x, own| drop_zone(POINT { x, y: 500 }, None, own, view);
