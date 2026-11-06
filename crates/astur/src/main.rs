@@ -13790,18 +13790,17 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         } else {
                             None
                         };
-                    let overlay_admission =
-                        if mgr.monitors[mi].layout == "scrolling" && !floating {
-                            let ws = &mgr.monitors[mi].workspaces[wi];
-                            let fresh_background = visible
-                                && ws.overlay.is_none()
-                                && (pinned_background_candidate(ws, &scroll_layout_windows(ws))
-                                    .is_some()
-                                    || native_background.is_some());
-                            overlay_should_admit(ws.overlay.is_some(), visible, fresh_background)
-                        } else {
-                            false
-                        };
+                    let overlay_admission = if mgr.monitors[mi].layout == "scrolling" && !floating {
+                        let ws = &mgr.monitors[mi].workspaces[wi];
+                        let fresh_background = visible
+                            && ws.overlay.is_none()
+                            && (pinned_background_candidate(ws, &scroll_layout_windows(ws))
+                                .is_some()
+                                || native_background.is_some());
+                        overlay_should_admit(ws.overlay.is_some(), visible, fresh_background)
+                    } else {
+                        false
+                    };
                     let anchored = if mgr.monitors[mi].layout == "scrolling"
                         && !floating
                         && !quiet
