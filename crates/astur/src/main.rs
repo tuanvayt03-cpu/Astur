@@ -3988,6 +3988,185 @@ enum DropAt {
     Last,          // a new column at the strip's end
 }
 
+/// A full-width scrolling column may be held as a background while newer
+/// windows occupy independent, addressable foreground slots. These are NOT
+/// manual tabs, columns, Windows virtual desktops or minimized applications.
+#[derive(Clone, Debug)]
+struct OverlaySlot {
+    members: Vec<isize>,
+    active: isize,
+}
+
+#[derive(Clone, Debug)]
+struct PinnedOverlay {
+    background: isize,
+    // Native Windows maximize is detached from Astur's tracked windows.
+    // Such a background is NEVER resized, parked or hidden by this layer.
+    external_background: bool,
+    slots: Vec<OverlaySlot>,
+    selected: Option<usize>,
+    previous: Option<usize>,
+}
+
+impl PinnedOverlay {
+    fn new(background: isize, slot_count: usize) -> Self {
+        Self {
+            background,
+            external_background: false,
+            slots: (0..slot_count.clamp(2, 5))
+                .map(|_| OverlaySlot { members: Vec::new(), active: 0 })
+                .collect(),
+            selected: None,
+            previous: None,
+        }
+    }
+
+    fn external(background: isize, slot_count: usize) -> Self {
+        let mut state = Self::new(background, slot_count);
+        state.external_background = true;
+        state
+    }
+
+    fn slot_of(&self, h: isize) -> Option<usize> {
+        self.slots.iter().position(|s| s.members.contains(&h))
+    }
+
+    fn activate(&mut self, h: isize) -> bool {
+        let Some(slot) = self.slot_of(h) else { return false };
+        if self.selected != Some(slot) {
+            self.previous = self.selected;
+        }
+        self.slots[slot].active = h;
+        self.selected = Some(slot);
+        true
+    }
+
+    fn admit_at(&mut self, h: isize, slot: usize) -> usize {
+        let i = slot.min(self.slots.len() - 1);
+        self.slots[i].members.push(h);
+        self.activate(h);
+        i
+    }
+
+    /// Swap visible occupants of two physical foreground slots. The older
+    /// stacked members remain reserved in their original slot.
+    fn exchange(&mut self, h: isize, destination: usize) -> bool {
+        let target = destination.min(self.slots.len() - 1);
+        if h == self.background {
+            if self.external_background { return false; }
+            let replace = self.slots[target].active;
+            if replace == 0 { return false; }
+            self.slots[target].members.retain(|&w| w != replace);
+            self.slots[target].members.push(h);
+            self.slots[target].active = h;
+            self.background = replace;
+            self.activate(h);
+            return true;
+        }
+        let Some(source) = self.slot_of(h) else { return false };
+        if source == target { return false; }
+        let replaced = self.slots[target].active;
+        self.slots[source].members.retain(|&w| w != h);
+        if replaced != 0 {
+            self.slots[target].members.retain(|&w| w != replaced);
+            self.slots[source].members.push(replaced);
+            self.slots[source].active = replaced;
+        } else {
+            self.slots[source].active =
+                self.slots[source].members.last().copied().unwrap_or(0);
+        }
+        self.slots[target].members.push(h);
+        self.activate(h);
+        true
+    }
+
+    fn admit(&mut self, h: isize) -> usize {
+        // Empty slots have priority even if the previous layer was another
+        // occupied slot. Rightmost first makes CS2 the right-hand half;
+        // CS3 fills the left, CS4 replaces the N-1 *other* slot.
+        let index = self.slots.iter().rposition(|s| s.members.is_empty())
+            .or_else(|| self.previous.filter(|&i| Some(i) != self.selected))
+            .or_else(|| (0..self.slots.len()).find(|&i| Some(i) != self.selected))
+            .unwrap_or(0);
+        self.slots[index].members.push(h);
+        self.activate(h);
+        index
+    }
+
+    fn remove(&mut self, h: isize) -> bool {
+        if h == self.background { return !self.external_background }
+        let Some(i) = self.slot_of(h) else { return false };
+        let slot = &mut self.slots[i];
+        slot.members.retain(|&x| x != h);
+        if slot.active == h {
+            slot.active = slot.members.last().copied().unwrap_or(0);
+        }
+        if slot.active == 0 && self.selected == Some(i) {
+            self.selected = self.slots.iter().position(|s| s.active != 0);
+        }
+        if self.previous == Some(i) && self.slots[i].active == 0 {
+            self.previous = None;
+        }
+        false
+    }
+
+    fn hidden(&self) -> Vec<isize> {
+        self.slots.iter()
+            .flat_map(|s| s.members.iter().copied().filter(move |&h| h != s.active))
+            .collect()
+    }
+
+    fn slot_rect(&self, area: RECT, gap: i32, outer: i32, index: usize) -> RECT {
+        let n = self.slots.len() as i32;
+        let i = index as i32;
+        let usable = (area.right - area.left - 2 * outer - (n - 1) * gap).max(n);
+        RECT {
+            left: area.left + outer + (usable * i / n) + i * gap,
+            right: area.left + outer + (usable * (i + 1) / n) + i * gap,
+            top: area.top + outer,
+            bottom: area.bottom - outer,
+        }
+    }
+
+    fn slot_at_point(&self, area: RECT, gap: i32, outer: i32, x: i32, y: i32) -> Option<usize> {
+        if x < area.left || x >= area.right || y < area.top || y >= area.bottom {
+            return None;
+        }
+        (0..self.slots.len()).min_by_key(|&i| {
+            let r = self.slot_rect(area, gap, outer, i);
+            if x < r.left { r.left - x }
+            else if x >= r.right { x - r.right + 1 }
+            else { 0 }
+        })
+    }
+
+    fn rects(&self, area: RECT, gap: i32, outer: i32) -> Vec<(isize, RECT)> {
+        let mut out = Vec::new();
+        if !self.external_background {
+            out.push((self.background, RECT {
+                left: area.left + outer,
+                top: area.top + outer,
+                right: area.right - outer,
+                bottom: area.bottom - outer,
+            }));
+        }
+        for (i, slot) in self.slots.iter().enumerate() {
+            let rect = self.slot_rect(area, gap, outer, i);
+            for &h in &slot.members {
+                out.push((h, rect));
+            }
+        }
+        out
+    }
+
+    fn valid(&self, members: &[isize]) -> bool {
+        (self.external_background || members.contains(&self.background))
+            && self.slots.iter().flat_map(|s| s.members.iter()).all(|h| members.contains(h))
+            && self.slots.iter().all(|s| s.members.is_empty() == (s.active == 0)
+                && (s.active == 0 || s.members.contains(&s.active)))
+    }
+}
+
 struct Workspace {
     windows: Vec<isize>,  // all managed windows in this workspace (tiled order)
     floating: Vec<isize>, // subset of `windows` excluded from tiling
@@ -3999,6 +4178,8 @@ struct Workspace {
     // Scrolling-layout columns, widths and scroll position. Only the
     // scrolling layout reads it; `windows` stays the membership and order.
     strip: Strip,
+    // A pinned full-width background with independent foreground slots.
+    overlay: Option<PinnedOverlay>,
 }
 
 impl Workspace {
@@ -4009,6 +4190,7 @@ impl Workspace {
             focused: 0,
             splits: Vec::new(),
             strip: Strip::default(),
+            overlay: None,
         }
     }
 
@@ -4684,6 +4866,80 @@ fn scroll_anchor_strip_x(
         .map(|span| span.0)
 }
 
+/// If an explicitly full-width scrolling column is the only foreground
+/// column, pin it as a background rather than treating its width as proof
+/// that all *overlay* slots are occupied. Native Windows maximize is kept
+/// independent from this managed scrolling state.
+fn pinned_background_candidate(ws: &Workspace, tiled: &[isize]) -> Option<isize> {
+    if ws.overlay.is_some() || tiled.len() != 1 || ws.focused != tiled[0] {
+        return None;
+    }
+    let h = tiled[0];
+    ws.strip.col_meta(&[h])
+        .filter(|m| m.width >= 0.99)
+        .map(|_| h)
+}
+
+fn pinned_slot_count(default_width: f32) -> usize {
+    (1.0 / default_width.clamp(0.2, 0.5)).round().clamp(2.0, 5.0) as usize
+}
+
+/// Windows-maximized backgrounds are intentionally outside the tiling model.
+/// Only use a tracked, independent, visible, genuinely maximized app on THIS
+/// monitor and only when its workspace has no existing managed tiles. Never
+/// accidentally pin a Zalo notification, tooltip, MT5 popup or stale HWND.
+unsafe fn native_pinned_background(mgr: &Manager, mi: usize, wi: usize) -> Option<isize> {
+    if !mgr.monitors[mi].workspaces[wi].windows.is_empty() {
+        return None;
+    }
+    let own = mgr.monitors[mi].hmon;
+    let candidates = INDEPENDENT_HWND.lock().unwrap()
+        .as_ref().cloned().unwrap_or_default();
+    let eligible = |h: isize| {
+        let hwnd = hwnd_from(h);
+        IsWindow(hwnd).as_bool()
+            && IsWindowVisible(hwnd).as_bool()
+            && IsZoomed(hwnd).as_bool()
+            && !IsIconic(hwnd).as_bool()
+            && (GetWindowLongW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW.0 == 0)
+            && (MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST).0 as isize == own)
+    };
+    let order = WINDOW_MRU.lock().unwrap().clone();
+    order.iter().copied()
+        .find(|h| candidates.contains(h) && eligible(*h))
+        .or_else(|| {
+            let matched: Vec<isize> = candidates.into_iter().filter(|&h| eligible(h)).collect();
+            (matched.len() == 1).then_some(matched.first().copied()).flatten()
+        })
+}
+
+/// When a native background is closed or returns to normal size, dissolve
+/// its presentation but keep the foreground HWNDs managed in the workspace.
+unsafe fn release_external_background(mgr: &mut Manager, h: isize) {
+    let mut refresh = Vec::new();
+    for (mi, mon) in mgr.monitors.iter_mut().enumerate() {
+        for (wi, ws) in mon.workspaces.iter_mut().enumerate() {
+            if ws.overlay.as_ref().is_some_and(|o| o.external_background && o.background == h) {
+                if ws.focused == h {
+                    ws.focused = ws.overlay.as_ref()
+                        .and_then(|o| o.selected.and_then(|i| o.slots.get(i)))
+                        .map(|s| s.active)
+                        .filter(|&x| x != 0)
+                        .or_else(|| ws.windows.first().copied())
+                        .unwrap_or(0);
+                }
+                ws.overlay = None;
+                if wi == mon.active {
+                    refresh.push(mi);
+                }
+            }
+        }
+    }
+    for mi in refresh {
+        retile_monitor(mgr, mi);
+    }
+}
+
 /// Choose where a newly opened window joins a scrolling workspace without
 /// shifting the column the user was working in. Use genuinely unoccupied
 /// viewport space first. Once the view is full, put the newcomer into a tab
@@ -5171,11 +5427,30 @@ impl Manager {
         } else {
             None
         };
+        // Remove membership from the overlay BEFORE the ordinary tiling
+        // vectors are updated. Closing the background dissolves its layer;
+        // closing the active CS4 reveals the older occupant of that slot.
+        let overlay_focus = if let Some(overlay) = &mut ws.overlay {
+            if overlay.remove(h) {
+                ws.overlay = None;
+                None
+            } else {
+                Some(
+                    overlay.selected
+                        .and_then(|i| overlay.slots.get(i).map(|s| s.active))
+                        .filter(|&w| w != 0)
+                        .unwrap_or(overlay.background),
+                )
+            }
+        } else {
+            None
+        };
         ws.windows.retain(|&x| x != h);
         ws.floating.retain(|&x| x != h);
         ws.strip.forget(h);
         if ws.focused == h {
-            ws.focused = next.unwrap_or_else(|| ws.windows.first().copied().unwrap_or(0));
+            ws.focused = overlay_focus.or(next)
+                .unwrap_or_else(|| ws.windows.first().copied().unwrap_or(0));
         }
         if scrolling {
             unsafe { ensure_visible(self, mi, wi) };
@@ -5247,6 +5522,14 @@ impl Manager {
         if source.floating.contains(&h) || destination.floating.contains(&t) {
             return false;
         }
+        // Cross-monitor exchange must update BOTH slot registries, not just
+        // the strip col IDs. The external native fullscreen background is
+        // never a swappable tile.
+        let source_slot = source.overlay.as_ref().map(|o| o.slot_of(h));
+        let dest_slot = destination.overlay.as_ref().map(|o| o.slot_of(t));
+        if source_slot.is_some_and(|x| x.is_none()) || dest_slot.is_some_and(|x| x.is_none()) {
+            return false;
+        }
         let (Some(i), Some(j)) = (
             source.windows.iter().position(|w| *w == h),
             destination.windows.iter().position(|w| *w == t),
@@ -5254,6 +5537,16 @@ impl Manager {
             return false;
         };
 
+        if let Some(Some(slot)) = source_slot {
+            let overlay = source.overlay.as_mut().unwrap();
+            overlay.remove(h);
+            overlay.admit_at(t, slot);
+        }
+        if let Some(Some(slot)) = dest_slot {
+            let overlay = destination.overlay.as_mut().unwrap();
+            overlay.remove(t);
+            overlay.admit_at(h, slot);
+        }
         let source_id = source.strip.col_of.remove(&h);
         let destination_id = destination.strip.col_of.remove(&t);
         let source_weight = source.strip.weights.remove(&h);
@@ -5309,7 +5602,21 @@ impl Manager {
     ) {
         let scrolling = !floating && self.monitors[mi].layout == "scrolling";
         let ws = &mut self.monitors[mi].workspaces[wi];
-        if scrolling {
+        if scrolling && ws.overlay.is_some() {
+            let overlay = ws.overlay.as_mut().unwrap();
+            // The incoming HWND takes the precise physical slot under a
+            // cross-display drop. No ensure_visible and no intermediate
+            // insertion into the first scrolling column.
+            let target = match at {
+                Some(DropAt::Below(t) | DropAt::Before(t) | DropAt::After(t)) => overlay.slot_of(t),
+                _ => None,
+            };
+            ws.windows.push(h);
+            match target {
+                Some(i) => { overlay.admit_at(h, i); }
+                None => { overlay.admit(h); }
+            }
+        } else if scrolling {
             let tiled = unsafe { scroll_layout_windows(ws) };
             ws.insert_in_strip(&tiled, h, at);
         } else {
@@ -6465,6 +6772,18 @@ unsafe fn scroll_window_under_layout(
     exclude: isize,
 ) -> Option<isize> {
     let wi = mgr.monitors[mi].active;
+    if let Some(overlay) = &mgr.monitors[mi].workspaces[wi].overlay {
+        let index = overlay.slot_at_point(
+            mgr.monitors[mi].work_area,
+            mgr.cfg.inner_gap,
+            mgr.cfg.outer_gap,
+            pt.x, pt.y,
+        )?;
+        let shown = overlay.slots[index].active;
+        // The background spans the entire screen; it must never intercept
+        // a drop intended for the foreground slot underneath the pointer.
+        return (shown != 0 && shown != exclude).then_some(shown);
+    }
     let map = PlaceMap::new(mgr, mi, wi);
     workspace_layout(mgr, mi, wi)
         .into_iter()
@@ -7619,7 +7938,10 @@ impl PlaceMap {
             hidden: mon
                 .workspaces
                 .get(wi)
-                .map(|ws| ws.strip.hidden_tabs(&scroll_layout_windows(ws), ws.focused))
+                .map(|ws| match &ws.overlay {
+                    Some(overlay) => overlay.hidden(),
+                    None => ws.strip.hidden_tabs(&scroll_layout_windows(ws), ws.focused),
+                })
                 .unwrap_or_default(),
         }
     }
@@ -7679,6 +8001,9 @@ unsafe fn ensure_visible(mgr: &mut Manager, mi: usize, wi: usize) {
     let Some(ws) = mon.workspaces.get_mut(wi) else {
         return;
     };
+    if ws.overlay.is_some() {
+        return; // pinned foreground slots are not scrolling columns
+    }
     let mode = center_mode(&mgr.cfg.scroll_center);
     if let Some(off) = strip_show_offset(
         &ws.strip,
@@ -7732,6 +8057,15 @@ unsafe fn workspace_layout(mgr: &Manager, mi: usize, wi: usize) -> Vec<(isize, R
     let n = tiled.len();
     if n == 0 {
         return Vec::new();
+    }
+    if mon.layout == "scrolling" {
+        if let Some(overlay) = &ws.overlay {
+            return overlay
+                .rects(mon.work_area, mgr.cfg.inner_gap, mgr.cfg.outer_gap)
+                .into_iter()
+                .filter(|(h, _)| tiled.contains(h) && !IsIconic(hwnd_from(*h)).as_bool())
+                .collect();
+        }
     }
     let rects = match mon.layout.as_str() {
         "master" => master_stack(
@@ -7820,6 +8154,7 @@ unsafe fn retile_monitor_opts(mgr: &Manager, mi: usize, force_instant: bool) {
         return;
     }
     let animate = !force_instant
+        && mon.workspaces[wi].overlay.is_none()
         && glide_enabled(&mgr.cfg)
         && !SLIDE_BUSY.load(Ordering::Acquire)
         && !ANY_DRAG.load(Ordering::Relaxed);
@@ -7857,6 +8192,29 @@ unsafe fn retile_monitor_opts(mgr: &Manager, mi: usize, force_instant: bool) {
     // Under the overlay just raised or re-aimed, or the instant path
     // (animations off, busy elsewhere, no crop, nothing moved).
     place_tiles(rects, &map, &mut probe);
+    if let Some(overlay) = &mon.workspaces[wi].overlay {
+        // HWND_TOP without activation keeps foreground overlay occupants
+        // above their pinned background and below genuine TOPMOST apps
+        // (notifications, OS UI). Do not raise them when the user explicitly
+        // activated the background via the taskbar.
+        let ws = &mon.workspaces[wi];
+        if ws.focused != overlay.background {
+            for h in overlay.slots.iter().map(|s| s.active)
+                .filter(|&h| h != 0 && h != ws.focused)
+                .chain(std::iter::once(ws.focused))
+            {
+                let hwnd = hwnd_from(h);
+                if IsWindow(hwnd).as_bool() && IsWindowVisible(hwnd).as_bool()
+                    && !IsIconic(hwnd).as_bool()
+                {
+                    let _ = SetWindowPos(
+                        hwnd, None, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
+                    );
+                }
+            }
+        }
+    }
     // The motion may reveal now (its loop holds a finished segment for this).
     GLIDE_PLACED.store(generation, Ordering::Release);
 }
@@ -8712,6 +9070,17 @@ unsafe fn strip_reveal(mgr: &mut Manager, h: isize) {
     }) else {
         return;
     };
+    if mgr.monitors[mi].workspaces[wi].overlay.is_some() {
+        let ws = &mut mgr.monitors[mi].workspaces[wi];
+        if let Some(overlay) = &mut ws.overlay {
+            if overlay.activate(h) {
+                ws.focused = h;
+                mgr.focused_mon = mi;
+                retile_monitor(mgr, mi);
+            }
+        }
+        return;
+    }
     let recover = slot_activation_needs_retile(&mgr.monitors[mi].workspaces[wi], h);
     let Some((slot, visibility)) = tile_slot(mgr, h) else {
         return;
@@ -13220,7 +13589,17 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
         return;
     }
     match cmd {
-        Cmd::RefreshIndependence(h) => reconcile_independence(mgr, h),
+        Cmd::RefreshIndependence(h) => {
+            // A native maximized background that was restored to normal
+            // must release its overlay layer BEFORE re-adoption as a tile.
+            if IsWindow(hwnd_from(h)).as_bool()
+                && !IsIconic(hwnd_from(h)).as_bool()
+                && !native_independence_enabled(hwnd_from(h), mgr.cfg.independent_fullscreen_popups)
+            {
+                release_external_background(mgr, h);
+            }
+            reconcile_independence(mgr, h);
+        },
         Cmd::Add(h, event) => {
             ev_count(EVC_ADD);
             match mgr.locate(h) {
@@ -13329,8 +13708,27 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         && !scratch
                         && GetForegroundWindow() != hwnd;
                     let prev_focus = mgr.monitors[mi].workspaces[wi].focused;
+                    let native_background = if mgr.monitors[mi].layout == "scrolling"
+                        && !floating && visible
+                    {
+                        native_pinned_background(mgr, mi, wi)
+                    } else {
+                        None
+                    };
+                    let overlay_admission = if mgr.monitors[mi].layout == "scrolling"
+                        && !floating
+                        && visible
+                    {
+                        let ws = &mgr.monitors[mi].workspaces[wi];
+                        ws.overlay.is_some()
+                            || pinned_background_candidate(ws, &scroll_layout_windows(ws)).is_some()
+                            || native_background.is_some()
+                    } else {
+                        false
+                    };
                     let anchored =
-                        if mgr.monitors[mi].layout == "scrolling" && !floating && !quiet && visible
+                        if mgr.monitors[mi].layout == "scrolling"
+                            && !floating && !quiet && visible && !overlay_admission
                         {
                             let ws = &mgr.monitors[mi].workspaces[wi];
                             let view_w =
@@ -13347,7 +13745,8 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                             None
                         };
                     let (at, tab_target) =
-                        if mgr.monitors[mi].layout == "scrolling" && !floating && !quiet && visible
+                        if mgr.monitors[mi].layout == "scrolling"
+                            && !floating && !quiet && visible && !overlay_admission
                         {
                             let ws = &mgr.monitors[mi].workspaces[wi];
                             let previous = WINDOW_MRU
@@ -13382,7 +13781,35 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     // Keep the old anchor stable until slot membership and
                     // stack presentation are committed; the fallback (no
                     // policy slot) retains legacy reveal behavior.
-                    mgr.insert_window(h, mi, wi, at, floating, at.is_none());
+                    if overlay_admission {
+                        let count = pinned_slot_count(mgr.cfg.scroll_default_width);
+                        let ws = &mut mgr.monitors[mi].workspaces[wi];
+                        if ws.overlay.is_none() {
+                            let existing = scroll_layout_windows(ws);
+                            if let Some(background) = pinned_background_candidate(ws, &existing) {
+                                ws.overlay = Some(PinnedOverlay::new(background, count));
+                            } else if let Some(background) = native_background {
+                                // A native Windows maximized HWND must remain
+                                // independent: overlay slots are tiled, but
+                                // never resize or park that full-screen app.
+                                ws.overlay = Some(PinnedOverlay::external(background, count));
+                            }
+                        }
+                        // This is one workspace transaction: CS1 stays
+                        // managed at full width; CS2/CS3 fill empty overlay
+                        // slots, CS4 consumes N-1 instead of a focused slot.
+                        ws.windows.push(h);
+                        ws.focused = h;
+                        if let Some(overlay) = &mut ws.overlay {
+                            let slot = overlay.admit(h);
+                            log_debug!(
+                                "overlay admit hwnd={h:#x} mon={mi} ws={wi} slot={slot} background={:#x}",
+                                overlay.background
+                            );
+                        }
+                    } else {
+                        mgr.insert_window(h, mi, wi, at, floating, at.is_none());
+                    }
                     if let Some(target) = tab_target {
                         // This is a visibility replacement, not a minimize or
                         // a new scrolling column. The old window remains a tab
@@ -13426,7 +13853,11 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     // before its MINIMIZEEND probe: avoid stale membership.
                     independent_remember(h, false);
                     if quiet && prev_focus != 0 {
-                        mgr.monitors[mi].workspaces[wi].focused = prev_focus;
+                        let ws = &mut mgr.monitors[mi].workspaces[wi];
+                        ws.focused = prev_focus;
+                        if let Some(overlay) = &mut ws.overlay {
+                            overlay.activate(prev_focus);
+                        }
                         if !floating && mgr.monitors[mi].layout == "scrolling" {
                             ensure_visible(mgr, mi, wi);
                         }
@@ -13512,7 +13943,10 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 }
             }
         }
-        Cmd::Remove(h) => untrack_window(mgr, h),
+        Cmd::Remove(h) => {
+            release_external_background(mgr, h);
+            untrack_window(mgr, h);
+        },
         Cmd::RemoveHidden(h) => {
             // An app-driven hide (close-to-tray etc.), queued at event time. The
             // app may have shown the window again before this runs, and that
@@ -13589,6 +14023,21 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     switch_monitor_workspace(mgr, mi, wi);
                 }
             } else {
+                // The native Windows-maximized background is intentionally
+                // untracked. A real taskbar focus should show it above the
+                // foreground tiles until another overlay is activated; do
+                // not mistake it for a popup or force it behind the overlays.
+                if let Some((mi, wi)) = mgr.monitors.iter().enumerate().find_map(|(mi, mon)| {
+                    let wi = mon.active;
+                    mon.workspaces.get(wi)
+                        .filter(|ws| ws.overlay.as_ref().is_some_and(|o|
+                            o.external_background && o.background == h))
+                        .map(|_| (mi, wi))
+                }) {
+                    mgr.focused_mon = mi;
+                    mgr.monitors[mi].workspaces[wi].focused = h;
+                    return;
+                }
                 // An untracked owned popup ("Save changes?", a login prompt)
                 // of a tile on an active workspace. One the app centres on a
                 // PARKED owner opens off screen, and the taskbar or Alt+Tab
@@ -14219,6 +14668,25 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 None
             };
             if to_mi == from_mi && scrolling {
+                if mgr.monitors[from_mi].workspaces[from_a].overlay.is_some() {
+                    let area = mgr.monitors[from_mi].work_area;
+                    let inner = mgr.cfg.inner_gap;
+                    let outer = mgr.cfg.outer_gap;
+                    let ws = &mut mgr.monitors[from_mi].workspaces[from_a];
+                    let destination = ws.overlay.as_ref().and_then(|o| {
+                        o.slot_at_point(area, inner, outer, pt.x, pt.y)
+                    });
+                    if let (Some(overlay), Some(slot)) = (&mut ws.overlay, destination) {
+                        overlay.exchange(h, slot);
+                    }
+                    ws.focused = h;
+                    mgr.focused_mon = from_mi;
+                    // Even a drop onto the same slot must undo the live
+                    // native/Alt-drag rectangle, without moving other slots.
+                    retile_drop(mgr, from_mi);
+                    focus_window(h);
+                    return;
+                }
                 // A centre-drop onto another single-tile column swaps its
                 // occupied slot, including non-adjacent columns. Edge drops
                 // retain the existing Niri-style before/after insertion.
@@ -14669,6 +15137,69 @@ unsafe fn process_strip(mgr: &mut Manager, cmd: &Cmd) -> bool {
     let (mi, a, h) = mgr.focused();
     if mgr.monitors[mi].layout != "scrolling" {
         return false;
+    }
+    if mgr.monitors[mi].workspaces[a].overlay.is_some() {
+        let ws = &mut mgr.monitors[mi].workspaces[a];
+        let overlay = ws.overlay.as_mut().unwrap();
+        let current = overlay.slot_of(h).or(overlay.selected);
+        let count = overlay.slots.len();
+        if matches!(*cmd, FocusGeo(Dir::Up) | FocusGeo(Dir::Down)) {
+            if let Some(i) = current {
+                let members = &overlay.slots[i].members;
+                if members.len() > 1 {
+                    let current_member = members.iter().position(|&m| m == overlay.slots[i].active)
+                        .unwrap_or(0);
+                    let target = if matches!(*cmd, FocusGeo(Dir::Up)) {
+                        members[(current_member + members.len() - 1) % members.len()]
+                    } else {
+                        members[(current_member + 1) % members.len()]
+                    };
+                    overlay.activate(target);
+                    ws.focused = target;
+                    retile_monitor(mgr, mi);
+                    focus_window(target);
+                }
+            }
+            return true;
+        }
+        let direction = match *cmd {
+            FocusGeo(Dir::Left) | MoveGeo(Dir::Left) => Some(-1),
+            FocusGeo(Dir::Right) | MoveGeo(Dir::Right) => Some(1),
+            FocusDir(n) | SwapDir(n) | ScrollFocus(n) | ScrollMove(n) => Some(n.signum()),
+            _ => None,
+        };
+        if let Some(d) = direction {
+            if let Some(from) = current {
+                if let Some(to) = step(from, d, count) {
+                    let target = overlay.slots[to].active;
+                    if matches!(*cmd, MoveGeo(_) | SwapDir(_) | ScrollMove(_)) {
+                        overlay.exchange(h, to);
+                        ws.focused = h;
+                    } else if target != 0 {
+                        overlay.activate(target);
+                        ws.focused = target;
+                    }
+                }
+            }
+            let target = ws.focused;
+            retile_monitor(mgr, mi);
+            if target != 0 {
+                focus_window(target);
+            }
+            return true;
+        }
+        if matches!(*cmd, PromoteMaster | MaximizeColumn
+            | CycleWidth | ResizeMaster(_) | ConsumeOrExpel(_) | ToggleTabbed
+            | CycleHeight | ResizeTile(_))
+        {
+            // Explicit layout-edit commands unpin and return to ordinary
+            // scrolling geometry; their normal handlers then perform the
+            // requested operation rather than mutating phantom overlay cols.
+            ws.overlay = None;
+        } else {
+            // No accidental implicit focus/move in the underlying strip.
+            return true;
+        }
     }
     let default = mgr.cfg.scroll_default_width;
     let ws = &mut mgr.monitors[mi].workspaces[a];
@@ -18710,7 +19241,9 @@ unsafe fn tab_bars_build(mgr: &Manager) -> Vec<TabBarData> {
         let Some(ws) = m
             .workspaces
             .get(m.active)
-            .filter(|ws| m.layout == "scrolling" && ws.strip.cols.values().any(|c| c.tabbed))
+            .filter(|ws| m.layout == "scrolling"
+                && ws.overlay.is_none()
+                && ws.strip.cols.values().any(|c| c.tabbed))
         else {
             continue;
         };
@@ -30232,6 +30765,115 @@ mod tests {
         assert_eq!(s.strip_cols(&s.columns(&t), D, 0.5)[0].active, 0);
         s.toggle_tabbed(A, 0.5);
         assert!(s.hidden_tabs(&t, D).is_empty(), "stacked again");
+    }
+
+    #[test]
+    fn pinned_background_keeps_cs1_full_and_fills_empty_front_slots_first() {
+        let mut overlay = PinnedOverlay::new(1, 2);
+        assert_eq!(overlay.admit(2), 1, "CS2 takes the right half");
+        assert_eq!(overlay.admit(3), 0, "CS3 takes the empty left half");
+        assert_eq!(overlay.background, 1);
+        assert_eq!(overlay.slots[0].active, 3);
+        assert_eq!(overlay.slots[1].active, 2);
+        assert!(overlay.hidden().is_empty());
+        let rects = overlay.rects(rect(0, 0, 1000, 700), 10, 10);
+        assert_eq!(rects.len(), 3);
+        assert_eq!(rects[0].0, 1);
+        assert_eq!(rects[0].1, rect(10, 10, 990, 690));
+        assert_eq!(rects[1].0, 3);
+        assert_eq!(rects[2].0, 2);
+        assert_eq!(rects[1].1.right + 10, rects[2].1.left);
+        assert!(overlay.valid(&[1, 2, 3]));
+        assert_eq!(overlay.slot_at_point(rect(0, 0, 1000, 700), 10, 10, 100, 400), Some(0));
+        assert_eq!(overlay.slot_at_point(rect(0, 0, 1000, 700), 10, 10, 900, 400), Some(1));
+    }
+
+    #[test]
+    fn pinned_new_cs4_replaces_n_minus_one_not_focused_slot() {
+        let mut overlay = PinnedOverlay::new(1, 2);
+        overlay.admit(2);
+        overlay.admit(3);
+        assert_eq!(overlay.admit(4), 1);
+        assert_eq!(overlay.slots[0].active, 3);
+        assert_eq!(overlay.slots[1].active, 4);
+        assert_eq!(overlay.hidden(), vec![2]);
+        assert!(overlay.valid(&[1, 2, 3, 4]));
+        assert!(overlay.activate(2));
+        assert_eq!(overlay.slots[1].active, 2);
+        assert_eq!(overlay.hidden(), vec![4]);
+        // Use the recently active slot 2: CS5 fills the OTHER slot, not
+        // the one the user is working in.
+        assert_eq!(overlay.admit(5), 0);
+        assert_eq!(overlay.slots[0].active, 5);
+        assert_eq!(overlay.slots[1].active, 2);
+        assert!(overlay.valid(&[1, 2, 3, 4, 5]));
+        assert!(!overlay.remove(5));
+        assert_eq!(overlay.slots[0].active, 3);
+        assert!(overlay.valid(&[1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn pinned_overlay_supports_quarters_fifths_and_direct_slot_exchange() {
+        assert_eq!(pinned_slot_count(0.5), 2);
+        assert_eq!(pinned_slot_count(0.25), 4);
+        assert_eq!(pinned_slot_count(0.2), 5);
+        let mut overlay = PinnedOverlay::new(1, pinned_slot_count(0.25));
+        for h in 2..=5 { overlay.admit(h); }
+        assert_eq!(overlay.slots.iter().map(|s| s.active).collect::<Vec<_>>(), vec![5,4,3,2]);
+        assert!(overlay.exchange(5, 3));
+        assert_eq!(overlay.slots.iter().map(|s| s.active).collect::<Vec<_>>(), vec![2,4,3,5]);
+        assert_eq!(overlay.background, 1);
+        assert!(overlay.exchange(1, 2));
+        assert_eq!(overlay.background, 3);
+        assert_eq!(overlay.slots[2].active, 1);
+        assert!(overlay.valid(&[1,2,3,4,5]));
+        let area = rect(-1920, 0, 0, 1080);
+        let rectangles = overlay.rects(area, 8, 8);
+        assert_eq!(rectangles.len(), 5);
+        assert_eq!(rectangles[0].1.left, -1912);
+        assert!(overlay.slot_at_point(area, 8, 8, -100, 500).is_some());
+    }
+
+    #[test]
+    fn external_windows_fullscreen_is_a_background_not_a_managed_tile() {
+        let mut overlay = PinnedOverlay::external(90, 2);
+        overlay.admit(91);
+        overlay.admit(92);
+        assert!(overlay.external_background);
+        assert!(overlay.valid(&[91, 92]));
+        assert!(!overlay.remove(90), "external HWND lifecycle is handled by WinEvent");
+        assert!(!overlay.exchange(90, 0), "cannot resize native maximized background");
+        let rects = overlay.rects(rect(0, 0, 1200, 800), 12, 12);
+        assert_eq!(rects.len(), 2);
+        assert_eq!(rects[0].0, 92);
+        assert_eq!(rects[1].0, 91);
+        assert!(!rects.iter().any(|&(h, _)| h == 90));
+    }
+
+    #[test]
+    fn cross_monitor_swap_keeps_pinned_slot_ownership() {
+        let mut mgr = test_manager(2, 1);
+        mgr.monitors[0].layout = "scrolling".to_owned();
+        mgr.monitors[1].layout = "scrolling".to_owned();
+        for (mi, h) in [(0, 1), (0, 2), (1, 3), (1, 4)] {
+            add(&mut mgr, mi, 0, h, false);
+        }
+        let mut first = PinnedOverlay::new(1, 2);
+        first.admit(2);
+        let mut second = PinnedOverlay::new(3, 2);
+        second.admit(4);
+        mgr.monitors[0].workspaces[0].overlay = Some(first);
+        mgr.monitors[1].workspaces[0].overlay = Some(second);
+        assert!(mgr.exchange_cross_monitor_slots(2, 4));
+        let left = &mgr.monitors[0].workspaces[0];
+        let right = &mgr.monitors[1].workspaces[0];
+        assert_eq!(left.windows, vec![1, 4]);
+        assert_eq!(right.windows, vec![3, 2]);
+        assert_eq!(left.overlay.as_ref().unwrap().slots[1].active, 4);
+        assert_eq!(right.overlay.as_ref().unwrap().slots[1].active, 2);
+        assert!(left.overlay.as_ref().unwrap().valid(&left.windows));
+        assert!(right.overlay.as_ref().unwrap().valid(&right.windows));
+        assert_model_sound(&mgr, &[1,2,3,4]);
     }
 
     #[test]
