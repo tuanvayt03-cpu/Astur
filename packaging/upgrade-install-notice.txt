@@ -1,63 +1,48 @@
-ASTUR VI UPDATE 2.4.0.17 (PREVIEW)
+ASTUR VI UPDATE 2.4.0.18 (EXPERIMENTAL PREVIEW)
 
-This installer UPDATES your existing Astur installation IN PLACE.
-It is an experimental community fork, NOT an official stable upstream release.
+This is a community preview of Astur's in-place Windows update, not an
+official upstream stable release. The new fullscreen overlay mode passed
+Windows source/CI tests, but direct desktop one-/two-monitor acceptance
+for your specific monitor and app mix is STILL PENDING.
 
 BEFORE INSTALLING
-- Quit the running Astur window manager. Do not run two managers together.
-- The installer retains the original AppId and installation directory.
-- Your existing settings and workspace configuration are preserved.
-- When prompted, allow the current app to close. Auto-restart is disabled.
-- The installer is UNSIGNED. Verify its SHA256 and source. Do not disable
-  Windows Defender or SmartScreen to launch an untrusted executable.
+- STOP any running Astur process first. NEVER run two window managers.
+- Do not evaluate this preview in an active trading/MT5 session. Test
+  first with disposable apps in an isolated Windows session.
+- This installer retains the original Astur AppId and installed path,
+  replaces the installed executables and preserves user configuration.
+- It is UNSIGNED. Check SHA256SUMS.txt and the GitHub source.
+- Do not disable Windows Defender or SmartScreen to bypass warnings.
+- The installer closes conflicting applications if asked; check prompts.
 
-ROLLBACK
-Before touching the installed files, the installer saves the existing
-Astur.exe, astur-settings.exe, astur.conf and navbar.conf (when available).
-First original snapshot:
+ROLLBACK SAFETY
+Installer backs up the existing Astur.exe, astur-settings.exe, astur.conf
+and navbar.conf (when present) BEFORE overwriting existing files.
+First original backup (kept across upgrades):
 %LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.1
-Immediately previous installation:
-%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.17
-These snapshots are never overwritten on a repeat update.
-To roll back: quit Astur, restore the saved binaries/config, or reinstall
-the previously used installer. Keep the other manager stopped.
+Immediately preceding installation:
+%LOCALAPPDATA%\Astur\UpgradeBackup\before-vi-update-2.4.0.18
+Backups are not overwritten on repeat installation. On rollback, exit
+Astur, restore previous binaries/config from these folders, or reinstall
+the previous GitHub preview installer 2.4.0.17.
 
-NEW IN 2.4.0.17
-- Direct cross-monitor drop: with two screens and four visible tiles, drop
-  4 onto 2, 1 onto 3/4 or 3 onto 2 without transiently landing in slot 1.
-  When both slots are occupied, exchange window ownership in one operation;
-  keep slot widths, tab mode, group metadata and scrolling offsets.
-- A Telegram/taskbar foreground retry is no longer rejected as a duplicate
-  when the managed window is still parked outside every display, iconic or
-  hidden by Astur. A guarded SHOW event and synthetic focus recovery can
-  trigger a physical retile without shifting the viewport.
-- This remains an EXPERIMENTAL preview. One-click taskbar recovery and
-  cross-display dragging need real multi-monitor interactive acceptance
-  before declaring the issues fully resolved.
+NEW IN 2.4.0.18
+- CS1 can stay full-screen behind independently managed foreground slots.
+- CS2 fills the right half; CS3 fills the empty left half; CS4 enters
+  the OTHER N-1 slot without replacing the currently focused slot.
+- Older overlay occupants stay managed and taskbar-recoverable.
+- 1/4 and 1/5 foreground widths, native maximized background (untouched),
+  minimize/close lifecycle handling, same- and cross-monitor slot swap.
+- Improved native/custom-titlebar drag admission and hidden-workspace
+  foreground-slot admission.
 
-RETAINED FROM 2.4.0.16
-- A new window fills an empty visible slot first; if all visible slots are
-  full, it uses the previously focused OTHER slot (layer N-1), keeping the
-  active anchor in place. The older occupant stays managed, not minimized.
-- Automatic slot replacement NO LONGER enables a manual Astur tab bar.
-  The black title strip is shown only after explicit Alt+Shift+T and only
-  when a column has at least two windows. A lone File Explorer shows none.
-- Taskbar, Alt+Tab and Astur app-bar activation of an older parked occupant
-  now triggers physical unpark/retiling, not only an internal focus flag.
-  Astur-owned stale SW_HIDE can be recovered without overriding app hiding.
-- Manual Tab ON/OFF is independent from the automatic slot stack, and
-  toggling it clears the automatic presentation state.
-- Minimizing a window retains its scrolling slot, and restoring a minimized
-  window places it back in that slot. Tab clicks use consistent indexes.
-- Retains flexible within/between-monitor Alt or title-bar dragging, native
-  top-edge maximize, and prior Window Policy Engine/Zalo protections.
+VERIFICATION LIMITATIONS
+GitHub Windows CI tested Rustfmt, Clippy with warnings denied, Rust tests,
+release build, upgrade/backup/rollback and uninstall smoke in an isolated
+Windows runner. Real Telegram taskbar, Zalo popup click-through, dragging
+and exact CS1/CS2/CS3/CS4 behavior still need desktop E2E.
+A CI PASS is NOT real desktop acceptance.
 
-ACCEPTANCE LIMITATIONS
-The code and installer are tested on isolated Windows CI. The real
-1-monitor and 2-monitor desktop (including 1/2, 1/4 and 1/5 layouts,
-native maximized/F11 windows, MT5 and Zalo popups) still requires
-manual acceptance. A CI pass is not a claim that live UI is verified.
-
-LICENSE / SOURCE
-Apache-2.0 license and third-party notices are included.
+SOURCE & LICENSE
 https://github.com/tuanvayt03-cpu/Astur
+Apache-2.0, LICENSE and THIRD_PARTY_NOTICES included.
