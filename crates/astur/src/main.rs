@@ -5784,6 +5784,7 @@ struct WindowPolicyFacts {
     background_protection: bool,
     intent: WindowIntent,
     legacy_float: bool,
+    unmanaged_small_utility: bool,
     utility_like: bool,
 }
 
@@ -5838,6 +5839,12 @@ fn decide_window_policy(f: WindowPolicyFacts) -> PolicyDecision {
             RuleAction::Tile => return high(WindowPolicy::Tile, "rule-tile"),
             RuleAction::Auto => {}
         }
+    }
+    // Explicit app rules above may override this conservative built-in list.
+    // Unlike Float, Ignore leaves these pop-out tools completely to Windows:
+    // no Astur slot, focus bookkeeping, border, alpha or movement.
+    if f.unmanaged_small_utility {
+        return high(WindowPolicy::Ignore, "builtin-small-utility");
     }
     if f.background_protection && f.intent == WindowIntent::BackgroundSpawn {
         return high(WindowPolicy::Background, "background-spawn");
@@ -6363,6 +6370,7 @@ unsafe fn window_policy_for(
             background_protection,
             intent,
             legacy_float: false,
+            unmanaged_small_utility: false,
             utility_like: false,
         });
     }
@@ -6379,12 +6387,16 @@ unsafe fn window_policy_for(
     let rule = match_window_rule(hwnd);
     let has_owner = GetWindow(hwnd, GW_OWNER).is_ok_and(|owner| !owner.0.is_null());
     let untitled = GetWindowTextLengthW(hwnd) <= 0;
+    let exe_path = window_exe(hwnd);
     let legacy_float = FLOAT_CLASSES
         .lock()
         .unwrap()
         .iter()
         .any(|c| c.eq_ignore_ascii_case(&class))
-        || window_exe(hwnd).is_some_and(|exe| floats_by_default(&exe));
+        || exe_path.as_deref().is_some_and(floats_by_default);
+    let unmanaged_small_utility = exe_path
+        .as_deref()
+        .is_some_and(|exe| small_utility_unmanaged_by_default(exe, &class, &window_title(hwnd)));
     let utility_like = utility_window(hwnd, &class);
     decide_window_policy(WindowPolicyFacts {
         hard_reject: false,
@@ -6398,6 +6410,7 @@ unsafe fn window_policy_for(
         background_protection,
         intent,
         legacy_float,
+        unmanaged_small_utility,
         utility_like,
     })
 }
@@ -6532,6 +6545,56 @@ unsafe fn request_bar_mode_refresh() {
     if marker != 0 {
         let _ = PostMessageW(hwnd_from(marker), WM_BAR_MODE_CHANGED, WPARAM(0), LPARAM(0));
     }
+}
+
+/// Narrow executable allowlist for small auxiliary Windows tools. These are
+/// deliberately NOT float-managed: their own/native window sizes, drag positions
+/// and z-order must never be changed by Astur or consume overlay/scrolling slots.
+/// Rules in `window_rules` still take precedence when the user opts into tiling.
+/// Avoid broad categories such as Notepad, Paint, Explorer, Chrome or Terminal.
+fn small_utility_unmanaged_by_default(exe_path: &str, class: &str, title: &str) -> bool {
+    // Support both absolute Win32/WindowsApps paths and a bare exe name, with
+    // case-independent basename matching (never a substring wildcard).
+    let name = exe_path.rsplit(['\\', '/']).next().unwrap_or(exe_path);
+    const EXES: &[&str] = &[
+        // Calculator: Win32 shim, Win10 UWP, and Windows 11 packaged variants.
+        "calc.exe",
+        "Calculator.exe",
+        "CalculatorApp.exe",
+        "WindowsCalculator.exe",
+        // Screenshot/snip utilities, not full-size image editors.
+        "SnippingTool.exe",
+        "ScreenSketch.exe",
+        "ScreenClippingHost.exe",
+        // Compact Windows utility windows.
+        "charmap.exe",
+        "Magnify.exe",
+        "osk.exe",
+        "taskmgr.exe",
+        "winver.exe",
+        "cleanmgr.exe",
+        "msconfig.exe",
+        "dxdiag.exe",
+        // Sticky Notes, Clock and voice recording utility shells.
+        "StikyNot.exe",
+        "StickyNotes.exe",
+        "Microsoft.Notes.exe",
+        "WindowsAlarms.exe",
+        "Time.exe",
+        "SoundRecorder.exe",
+        "VoiceRecorder.exe",
+    ];
+    if EXES.iter().any(|exe| name.eq_ignore_ascii_case(exe)) {
+        return true;
+    }
+    // Older Calculator UWP versions expose an ApplicationFrameHost.exe HWND
+    // instead of their own process. Match its exact host + class + app title;
+    // ignoring every ApplicationFrameWindow would also discard Photos and Store.
+    name.eq_ignore_ascii_case("ApplicationFrameHost.exe")
+        && class.eq_ignore_ascii_case("ApplicationFrameWindow")
+        && ["Calculator", "Windows Calculator", "Máy tính"]
+            .iter()
+            .any(|candidate| title.eq_ignore_ascii_case(candidate))
 }
 
 /// Built-in utilities that should remain free unless an explicit app rule says
@@ -26973,6 +27036,7 @@ mod tests {
             background_protection: true,
             intent: WindowIntent::Foreground,
             legacy_float: false,
+            unmanaged_small_utility: false,
             utility_like: false,
         }
     }
@@ -27110,6 +27174,117 @@ mod tests {
             work
         ));
         assert!(!utility_window_shape(fixed, 0, "WinRAR", work, work));
+    }
+
+    #[test]
+    fn small_windows_utilities_stay_native_unmanaged_not_maximized_tiles() {
+        for exe in [
+            r"C:\\Windows\\System32\\calc.exe",
+            r"C:\\Program Files\\WindowsApps\\Microsoft.WindowsCalculator\\Calculator.exe",
+            "CALCULATORAPP.EXE",
+            "WindowsCalculator.exe",
+            "SnippingTool.exe",
+            "ScreenSketch.exe",
+            "ScreenClippingHost.exe",
+            "charmap.exe",
+            "Magnify.exe",
+            "osk.exe",
+            "TaskMgr.exe",
+            "WinVer.exe",
+            "cleanmgr.exe",
+            "msconfig.exe",
+            "dxdiag.exe",
+            "StikyNot.exe",
+            "StickyNotes.exe",
+            "Microsoft.Notes.exe",
+            "WindowsAlarms.exe",
+            "Time.exe",
+            "SoundRecorder.exe",
+            "VoiceRecorder.exe",
+        ] {
+            assert!(small_utility_unmanaged_by_default(exe, "", ""), "{exe}");
+        }
+        // UWP calculator host is special-cased by application title only;
+        // generic UWP/WinUI applications should remain ordinary tiled windows.
+        assert!(small_utility_unmanaged_by_default(
+            r"C:\\Windows\\System32\\ApplicationFrameHost.exe",
+            "ApplicationFrameWindow",
+            "Calculator"
+        ));
+        assert!(small_utility_unmanaged_by_default(
+            "ApplicationFrameHost.exe",
+            "ApplicationFrameWindow",
+            "Máy tính"
+        ));
+        assert!(!small_utility_unmanaged_by_default(
+            "ApplicationFrameHost.exe",
+            "ApplicationFrameWindow",
+            "Photos"
+        ));
+        assert!(!small_utility_unmanaged_by_default(
+            "ApplicationFrameHost.exe",
+            "Chrome_WidgetWin_1",
+            "Calculator"
+        ));
+        for exe in [
+            "chrome.exe",
+            "explorer.exe",
+            "notepad.exe",
+            "mspaint.exe",
+            "telegram.exe",
+            "terminal64.exe",
+            "WindowsTerminal.exe",
+            r"C:\\Apps\\not-calculator.exe",
+            r"C:\\Tools\\calc.exe.bak",
+        ] {
+            assert!(!small_utility_unmanaged_by_default(exe, "", ""), "{exe}");
+        }
+        for intent in [
+            WindowIntent::Startup,
+            WindowIntent::Foreground,
+            WindowIntent::AsturLaunch,
+        ] {
+            let policy = decide_window_policy(WindowPolicyFacts {
+                unmanaged_small_utility: true,
+                intent,
+                ..base_policy_facts()
+            });
+            assert_eq!(policy.policy, WindowPolicy::Ignore);
+            assert_eq!(policy.reason, "builtin-small-utility");
+        }
+        // A deliberate user rule can restore managed behavior; Auto retains
+        // the safe default, and structural owned dialogs always stay modal.
+        for (action, expected) in [
+            (RuleAction::Auto, WindowPolicy::Ignore),
+            (RuleAction::Tile, WindowPolicy::Tile),
+            (RuleAction::Float, WindowPolicy::Float),
+            (RuleAction::Background, WindowPolicy::Background),
+            (RuleAction::Ignore, WindowPolicy::Ignore),
+        ] {
+            assert_eq!(
+                decide_window_policy(WindowPolicyFacts {
+                    unmanaged_small_utility: true,
+                    rule_action: Some(action),
+                    ..base_policy_facts()
+                })
+                .policy,
+                expected
+            );
+        }
+        assert_eq!(
+            decide_window_policy(WindowPolicyFacts {
+                unmanaged_small_utility: true,
+                has_owner: true,
+                rule_action: Some(RuleAction::Tile),
+                ..base_policy_facts()
+            })
+            .policy,
+            WindowPolicy::Modal
+        );
+        assert_eq!(
+            decide_window_policy(base_policy_facts()).policy,
+            WindowPolicy::Tile
+        );
     }
 
     // ---- drag drops (batch 17, INPUT-9 / INPUT-5) -----------------------------
