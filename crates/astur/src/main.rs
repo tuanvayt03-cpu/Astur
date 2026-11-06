@@ -27239,7 +27239,11 @@ mod tests {
         ] {
             assert!(!small_utility_unmanaged_by_default(exe, "", ""), "{exe}");
         }
-        for intent in [WindowIntent::Startup, WindowIntent::Foreground, WindowIntent::AsturLaunch] {
+        for intent in [
+            WindowIntent::Startup,
+            WindowIntent::Foreground,
+            WindowIntent::AsturLaunch,
+        ] {
             let policy = decide_window_policy(WindowPolicyFacts {
                 unmanaged_small_utility: true,
                 intent,
