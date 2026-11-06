@@ -5665,8 +5665,12 @@ impl Manager {
             };
             ws.windows.push(h);
             match target {
-                Some(i) => { overlay.admit_at(h, i); }
-                None => { overlay.admit(h); }
+                Some(i) => {
+                    overlay.admit_at(h, i);
+                }
+                None => {
+                    overlay.admit(h);
+                }
             }
         } else if scrolling {
             let tiled = unsafe { scroll_layout_windows(ws) };
@@ -6829,7 +6833,8 @@ unsafe fn scroll_window_under_layout(
             mgr.monitors[mi].work_area,
             mgr.cfg.inner_gap,
             mgr.cfg.outer_gap,
-            pt.x, pt.y,
+            pt.x,
+            pt.y,
         )?;
         let shown = overlay.slots[index].active;
         // The background spans the entire screen; it must never intercept
@@ -8251,16 +8256,25 @@ unsafe fn retile_monitor_opts(mgr: &Manager, mi: usize, force_instant: bool) {
         // activated the background via the taskbar.
         let ws = &mon.workspaces[wi];
         if ws.focused != overlay.background {
-            for h in overlay.slots.iter().map(|s| s.active)
+            for h in overlay
+                .slots
+                .iter()
+                .map(|s| s.active)
                 .filter(|&h| h != 0 && h != ws.focused)
                 .chain(std::iter::once(ws.focused))
             {
                 let hwnd = hwnd_from(h);
-                if IsWindow(hwnd).as_bool() && IsWindowVisible(hwnd).as_bool()
+                if IsWindow(hwnd).as_bool()
+                    && IsWindowVisible(hwnd).as_bool()
                     && !IsIconic(hwnd).as_bool()
                 {
                     let _ = SetWindowPos(
-                        hwnd, None, 0, 0, 0, 0,
+                        hwnd,
+                        None,
+                        0,
+                        0,
+                        0,
+                        0,
                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
                     );
                 }
@@ -13763,63 +13777,65 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         && !scratch
                         && GetForegroundWindow() != hwnd;
                     let prev_focus = mgr.monitors[mi].workspaces[wi].focused;
-                    let native_background = if mgr.monitors[mi].layout == "scrolling"
-                        && !floating && visible
-                    {
-                        native_pinned_background(mgr, mi, wi)
-                    } else {
-                        None
-                    };
-                    let overlay_admission = if mgr.monitors[mi].layout == "scrolling"
-                        && !floating
-                        && visible
-                    {
-                        let ws = &mgr.monitors[mi].workspaces[wi];
-                        ws.overlay.is_some()
-                            || pinned_background_candidate(ws, &scroll_layout_windows(ws)).is_some()
-                            || native_background.is_some()
-                    } else {
-                        false
-                    };
-                    let anchored =
-                        if mgr.monitors[mi].layout == "scrolling"
-                            && !floating && !quiet && visible && !overlay_admission
-                        {
-                            let ws = &mgr.monitors[mi].workspaces[wi];
-                            let view_w =
-                                mgr.monitors[mi].work_area.right - mgr.monitors[mi].work_area.left;
-                            scroll_anchor_strip_x(
-                                ws,
-                                &scroll_layout_windows(ws),
-                                prev_focus,
-                                view_w,
-                                &mgr.cfg,
-                            )
-                            .map(|x| (x, ws.strip.offset))
+                    let native_background =
+                        if mgr.monitors[mi].layout == "scrolling" && !floating && visible {
+                            native_pinned_background(mgr, mi, wi)
                         } else {
                             None
                         };
-                    let (at, tab_target) =
-                        if mgr.monitors[mi].layout == "scrolling"
-                            && !floating && !quiet && visible && !overlay_admission
-                        {
+                    let overlay_admission =
+                        if mgr.monitors[mi].layout == "scrolling" && !floating && visible {
                             let ws = &mgr.monitors[mi].workspaces[wi];
-                            let previous = WINDOW_MRU
-                                .lock()
-                                .unwrap()
-                                .iter()
-                                .copied()
-                                .find(|w| *w != prev_focus && ws.windows.contains(w));
-                            scroll_anchor_admission(
-                                ws,
-                                &scroll_layout_windows(ws),
-                                mgr.monitors[mi].work_area,
-                                &mgr.cfg,
-                                previous,
-                            )
+                            ws.overlay.is_some()
+                                || pinned_background_candidate(ws, &scroll_layout_windows(ws))
+                                    .is_some()
+                                || native_background.is_some()
                         } else {
-                            (None, None)
+                            false
                         };
+                    let anchored = if mgr.monitors[mi].layout == "scrolling"
+                        && !floating
+                        && !quiet
+                        && visible
+                        && !overlay_admission
+                    {
+                        let ws = &mgr.monitors[mi].workspaces[wi];
+                        let view_w =
+                            mgr.monitors[mi].work_area.right - mgr.monitors[mi].work_area.left;
+                        scroll_anchor_strip_x(
+                            ws,
+                            &scroll_layout_windows(ws),
+                            prev_focus,
+                            view_w,
+                            &mgr.cfg,
+                        )
+                        .map(|x| (x, ws.strip.offset))
+                    } else {
+                        None
+                    };
+                    let (at, tab_target) = if mgr.monitors[mi].layout == "scrolling"
+                        && !floating
+                        && !quiet
+                        && visible
+                        && !overlay_admission
+                    {
+                        let ws = &mgr.monitors[mi].workspaces[wi];
+                        let previous = WINDOW_MRU
+                            .lock()
+                            .unwrap()
+                            .iter()
+                            .copied()
+                            .find(|w| *w != prev_focus && ws.windows.contains(w));
+                        scroll_anchor_admission(
+                            ws,
+                            &scroll_layout_windows(ws),
+                            mgr.monitors[mi].work_area,
+                            &mgr.cfg,
+                            previous,
+                        )
+                    } else {
+                        (None, None)
+                    };
                     if log_on(LOG_DEBUG) && mgr.monitors[mi].layout == "scrolling" && !floating {
                         let ws = &mgr.monitors[mi].workspaces[wi];
                         let tiled = scroll_layout_windows(ws);
@@ -14084,9 +14100,13 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 // not mistake it for a popup or force it behind the overlays.
                 if let Some((mi, wi)) = mgr.monitors.iter().enumerate().find_map(|(mi, mon)| {
                     let wi = mon.active;
-                    mon.workspaces.get(wi)
-                        .filter(|ws| ws.overlay.as_ref().is_some_and(|o|
-                            o.external_background && o.background == h))
+                    mon.workspaces
+                        .get(wi)
+                        .filter(|ws| {
+                            ws.overlay
+                                .as_ref()
+                                .is_some_and(|o| o.external_background && o.background == h)
+                        })
                         .map(|_| (mi, wi))
                 }) {
                     mgr.focused_mon = mi;
@@ -14728,9 +14748,10 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     let inner = mgr.cfg.inner_gap;
                     let outer = mgr.cfg.outer_gap;
                     let ws = &mut mgr.monitors[from_mi].workspaces[from_a];
-                    let destination = ws.overlay.as_ref().and_then(|o| {
-                        o.slot_at_point(area, inner, outer, pt.x, pt.y)
-                    });
+                    let destination = ws
+                        .overlay
+                        .as_ref()
+                        .and_then(|o| o.slot_at_point(area, inner, outer, pt.x, pt.y));
                     if let (Some(overlay), Some(slot)) = (&mut ws.overlay, destination) {
                         overlay.exchange(h, slot);
                     }
@@ -15202,7 +15223,9 @@ unsafe fn process_strip(mgr: &mut Manager, cmd: &Cmd) -> bool {
             if let Some(i) = current {
                 let members = &overlay.slots[i].members;
                 if members.len() > 1 {
-                    let current_member = members.iter().position(|&m| m == overlay.slots[i].active)
+                    let current_member = members
+                        .iter()
+                        .position(|&m| m == overlay.slots[i].active)
                         .unwrap_or(0);
                     let target = if matches!(*cmd, FocusGeo(Dir::Up)) {
                         members[(current_member + members.len() - 1) % members.len()]
@@ -15243,10 +15266,17 @@ unsafe fn process_strip(mgr: &mut Manager, cmd: &Cmd) -> bool {
             }
             return true;
         }
-        if matches!(*cmd, PromoteMaster | MaximizeColumn
-            | CycleWidth | ResizeMaster(_) | ConsumeOrExpel(_) | ToggleTabbed
-            | CycleHeight | ResizeTile(_))
-        {
+        if matches!(
+            *cmd,
+            PromoteMaster
+                | MaximizeColumn
+                | CycleWidth
+                | ResizeMaster(_)
+                | ConsumeOrExpel(_)
+                | ToggleTabbed
+                | CycleHeight
+                | ResizeTile(_)
+        ) {
             // Explicit layout-edit commands unpin and return to ordinary
             // scrolling geometry; their normal handlers then perform the
             // requested operation rather than mutating phantom overlay cols.
@@ -30839,8 +30869,14 @@ mod tests {
         assert_eq!(rects[2].0, 2);
         assert_eq!(rects[1].1.right + 10, rects[2].1.left);
         assert!(overlay.valid(&[1, 2, 3]));
-        assert_eq!(overlay.slot_at_point(rect(0, 0, 1000, 700), 10, 10, 100, 400), Some(0));
-        assert_eq!(overlay.slot_at_point(rect(0, 0, 1000, 700), 10, 10, 900, 400), Some(1));
+        assert_eq!(
+            overlay.slot_at_point(rect(0, 0, 1000, 700), 10, 10, 100, 400),
+            Some(0)
+        );
+        assert_eq!(
+            overlay.slot_at_point(rect(0, 0, 1000, 700), 10, 10, 900, 400),
+            Some(1)
+        );
     }
 
     #[test]
@@ -30873,15 +30909,23 @@ mod tests {
         assert_eq!(pinned_slot_count(0.25), 4);
         assert_eq!(pinned_slot_count(0.2), 5);
         let mut overlay = PinnedOverlay::new(1, pinned_slot_count(0.25));
-        for h in 2..=5 { overlay.admit(h); }
-        assert_eq!(overlay.slots.iter().map(|s| s.active).collect::<Vec<_>>(), vec![5,4,3,2]);
+        for h in 2..=5 {
+            overlay.admit(h);
+        }
+        assert_eq!(
+            overlay.slots.iter().map(|s| s.active).collect::<Vec<_>>(),
+            vec![5, 4, 3, 2]
+        );
         assert!(overlay.exchange(5, 3));
-        assert_eq!(overlay.slots.iter().map(|s| s.active).collect::<Vec<_>>(), vec![2,4,3,5]);
+        assert_eq!(
+            overlay.slots.iter().map(|s| s.active).collect::<Vec<_>>(),
+            vec![2, 4, 3, 5]
+        );
         assert_eq!(overlay.background, 1);
         assert!(overlay.exchange(1, 2));
         assert_eq!(overlay.background, 3);
         assert_eq!(overlay.slots[2].active, 1);
-        assert!(overlay.valid(&[1,2,3,4,5]));
+        assert!(overlay.valid(&[1, 2, 3, 4, 5]));
         let area = rect(-1920, 0, 0, 1080);
         let rectangles = overlay.rects(area, 8, 8);
         assert_eq!(rectangles.len(), 5);
@@ -30896,8 +30940,14 @@ mod tests {
         overlay.admit(92);
         assert!(overlay.external_background);
         assert!(overlay.valid(&[91, 92]));
-        assert!(!overlay.remove(90), "external HWND lifecycle is handled by WinEvent");
-        assert!(!overlay.exchange(90, 0), "cannot resize native maximized background");
+        assert!(
+            !overlay.remove(90),
+            "external HWND lifecycle is handled by WinEvent"
+        );
+        assert!(
+            !overlay.exchange(90, 0),
+            "cannot resize native maximized background"
+        );
         let rects = overlay.rects(rect(0, 0, 1200, 800), 12, 12);
         assert_eq!(rects.len(), 2);
         assert_eq!(rects[0].0, 92);
@@ -30928,7 +30978,7 @@ mod tests {
         assert_eq!(right.overlay.as_ref().unwrap().slots[1].active, 2);
         assert!(left.overlay.as_ref().unwrap().valid(&left.windows));
         assert!(right.overlay.as_ref().unwrap().valid(&right.windows));
-        assert_model_sound(&mgr, &[1,2,3,4]);
+        assert_model_sound(&mgr, &[1, 2, 3, 4]);
     }
 
     #[test]
