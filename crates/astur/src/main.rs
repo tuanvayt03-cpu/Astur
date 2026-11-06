@@ -4014,7 +4014,10 @@ impl PinnedOverlay {
             background,
             external_background: false,
             slots: (0..slot_count.clamp(2, 5))
-                .map(|_| OverlaySlot { members: Vec::new(), active: 0 })
+                .map(|_| OverlaySlot {
+                    members: Vec::new(),
+                    active: 0,
+                })
                 .collect(),
             selected: None,
             previous: None,
@@ -4032,7 +4035,9 @@ impl PinnedOverlay {
     }
 
     fn activate(&mut self, h: isize) -> bool {
-        let Some(slot) = self.slot_of(h) else { return false };
+        let Some(slot) = self.slot_of(h) else {
+            return false;
+        };
         if self.selected != Some(slot) {
             self.previous = self.selected;
         }
@@ -4053,9 +4058,13 @@ impl PinnedOverlay {
     fn exchange(&mut self, h: isize, destination: usize) -> bool {
         let target = destination.min(self.slots.len() - 1);
         if h == self.background {
-            if self.external_background { return false; }
+            if self.external_background {
+                return false;
+            }
             let replace = self.slots[target].active;
-            if replace == 0 { return false; }
+            if replace == 0 {
+                return false;
+            }
             self.slots[target].members.retain(|&w| w != replace);
             self.slots[target].members.push(h);
             self.slots[target].active = h;
@@ -4063,8 +4072,12 @@ impl PinnedOverlay {
             self.activate(h);
             return true;
         }
-        let Some(source) = self.slot_of(h) else { return false };
-        if source == target { return false; }
+        let Some(source) = self.slot_of(h) else {
+            return false;
+        };
+        if source == target {
+            return false;
+        }
         let replaced = self.slots[target].active;
         self.slots[source].members.retain(|&w| w != h);
         if replaced != 0 {
@@ -4072,8 +4085,7 @@ impl PinnedOverlay {
             self.slots[source].members.push(replaced);
             self.slots[source].active = replaced;
         } else {
-            self.slots[source].active =
-                self.slots[source].members.last().copied().unwrap_or(0);
+            self.slots[source].active = self.slots[source].members.last().copied().unwrap_or(0);
         }
         self.slots[target].members.push(h);
         self.activate(h);
@@ -4084,7 +4096,10 @@ impl PinnedOverlay {
         // Empty slots have priority even if the previous layer was another
         // occupied slot. Rightmost first makes CS2 the right-hand half;
         // CS3 fills the left, CS4 replaces the N-1 *other* slot.
-        let index = self.slots.iter().rposition(|s| s.members.is_empty())
+        let index = self
+            .slots
+            .iter()
+            .rposition(|s| s.members.is_empty())
             .or_else(|| self.previous.filter(|&i| Some(i) != self.selected))
             .or_else(|| (0..self.slots.len()).find(|&i| Some(i) != self.selected))
             .unwrap_or(0);
@@ -4094,8 +4109,12 @@ impl PinnedOverlay {
     }
 
     fn remove(&mut self, h: isize) -> bool {
-        if h == self.background { return !self.external_background }
-        let Some(i) = self.slot_of(h) else { return false };
+        if h == self.background {
+            return !self.external_background;
+        }
+        let Some(i) = self.slot_of(h) else {
+            return false;
+        };
         let slot = &mut self.slots[i];
         slot.members.retain(|&x| x != h);
         if slot.active == h {
@@ -4111,7 +4130,8 @@ impl PinnedOverlay {
     }
 
     fn hidden(&self) -> Vec<isize> {
-        self.slots.iter()
+        self.slots
+            .iter()
             .flat_map(|s| s.members.iter().copied().filter(move |&h| h != s.active))
             .collect()
     }
@@ -4134,21 +4154,28 @@ impl PinnedOverlay {
         }
         (0..self.slots.len()).min_by_key(|&i| {
             let r = self.slot_rect(area, gap, outer, i);
-            if x < r.left { r.left - x }
-            else if x >= r.right { x - r.right + 1 }
-            else { 0 }
+            if x < r.left {
+                r.left - x
+            } else if x >= r.right {
+                x - r.right + 1
+            } else {
+                0
+            }
         })
     }
 
     fn rects(&self, area: RECT, gap: i32, outer: i32) -> Vec<(isize, RECT)> {
         let mut out = Vec::new();
         if !self.external_background {
-            out.push((self.background, RECT {
-                left: area.left + outer,
-                top: area.top + outer,
-                right: area.right - outer,
-                bottom: area.bottom - outer,
-            }));
+            out.push((
+                self.background,
+                RECT {
+                    left: area.left + outer,
+                    top: area.top + outer,
+                    right: area.right - outer,
+                    bottom: area.bottom - outer,
+                },
+            ));
         }
         for (i, slot) in self.slots.iter().enumerate() {
             let rect = self.slot_rect(area, gap, outer, i);
@@ -4161,9 +4188,15 @@ impl PinnedOverlay {
 
     fn valid(&self, members: &[isize]) -> bool {
         (self.external_background || members.contains(&self.background))
-            && self.slots.iter().flat_map(|s| s.members.iter()).all(|h| members.contains(h))
-            && self.slots.iter().all(|s| s.members.is_empty() == (s.active == 0)
-                && (s.active == 0 || s.members.contains(&s.active)))
+            && self
+                .slots
+                .iter()
+                .flat_map(|s| s.members.iter())
+                .all(|h| members.contains(h))
+            && self.slots.iter().all(|s| {
+                s.members.is_empty() == (s.active == 0)
+                    && (s.active == 0 || s.members.contains(&s.active))
+            })
     }
 }
 
@@ -4875,13 +4908,16 @@ fn pinned_background_candidate(ws: &Workspace, tiled: &[isize]) -> Option<isize>
         return None;
     }
     let h = tiled[0];
-    ws.strip.col_meta(&[h])
+    ws.strip
+        .col_meta(&[h])
         .filter(|m| m.width >= 0.99)
         .map(|_| h)
 }
 
 fn pinned_slot_count(default_width: f32) -> usize {
-    (1.0 / default_width.clamp(0.2, 0.5)).round().clamp(2.0, 5.0) as usize
+    (1.0 / default_width.clamp(0.2, 0.5))
+        .round()
+        .clamp(2.0, 5.0) as usize
 }
 
 /// Windows-maximized backgrounds are intentionally outside the tiling model.
@@ -4893,8 +4929,12 @@ unsafe fn native_pinned_background(mgr: &Manager, mi: usize, wi: usize) -> Optio
         return None;
     }
     let own = mgr.monitors[mi].hmon;
-    let candidates = INDEPENDENT_HWND.lock().unwrap()
-        .as_ref().cloned().unwrap_or_default();
+    let candidates = INDEPENDENT_HWND
+        .lock()
+        .unwrap()
+        .as_ref()
+        .cloned()
+        .unwrap_or_default();
     let eligible = |h: isize| {
         let hwnd = hwnd_from(h);
         IsWindow(hwnd).as_bool()
@@ -4905,11 +4945,15 @@ unsafe fn native_pinned_background(mgr: &Manager, mi: usize, wi: usize) -> Optio
             && (MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST).0 as isize == own)
     };
     let order = WINDOW_MRU.lock().unwrap().clone();
-    order.iter().copied()
+    order
+        .iter()
+        .copied()
         .find(|h| candidates.contains(h) && eligible(*h))
         .or_else(|| {
             let matched: Vec<isize> = candidates.into_iter().filter(|&h| eligible(h)).collect();
-            (matched.len() == 1).then_some(matched.first().copied()).flatten()
+            (matched.len() == 1)
+                .then_some(matched.first().copied())
+                .flatten()
         })
 }
 
@@ -4919,9 +4963,15 @@ unsafe fn release_external_background(mgr: &mut Manager, h: isize) {
     let mut refresh = Vec::new();
     for (mi, mon) in mgr.monitors.iter_mut().enumerate() {
         for (wi, ws) in mon.workspaces.iter_mut().enumerate() {
-            if ws.overlay.as_ref().is_some_and(|o| o.external_background && o.background == h) {
+            if ws
+                .overlay
+                .as_ref()
+                .is_some_and(|o| o.external_background && o.background == h)
+            {
                 if ws.focused == h {
-                    ws.focused = ws.overlay.as_ref()
+                    ws.focused = ws
+                        .overlay
+                        .as_ref()
                         .and_then(|o| o.selected.and_then(|i| o.slots.get(i)))
                         .map(|s| s.active)
                         .filter(|&x| x != 0)
@@ -5436,7 +5486,8 @@ impl Manager {
                 None
             } else {
                 Some(
-                    overlay.selected
+                    overlay
+                        .selected
                         .and_then(|i| overlay.slots.get(i).map(|s| s.active))
                         .filter(|&w| w != 0)
                         .unwrap_or(overlay.background),
@@ -5449,7 +5500,8 @@ impl Manager {
         ws.floating.retain(|&x| x != h);
         ws.strip.forget(h);
         if ws.focused == h {
-            ws.focused = overlay_focus.or(next)
+            ws.focused = overlay_focus
+                .or(next)
                 .unwrap_or_else(|| ws.windows.first().copied().unwrap_or(0));
         }
         if scrolling {
@@ -13592,9 +13644,12 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
         Cmd::RefreshIndependence(h) => {
             // A native maximized background that was restored to normal
             // must release its overlay layer BEFORE re-adoption as a tile.
-            if IsWindow(hwnd_from(h)).as_bool()
-                && !IsIconic(hwnd_from(h)).as_bool()
-                && !native_independence_enabled(hwnd_from(h), mgr.cfg.independent_fullscreen_popups)
+            if !IsWindow(hwnd_from(h)).as_bool()
+                || (!IsIconic(hwnd_from(h)).as_bool()
+                    && !native_independence_enabled(
+                        hwnd_from(h),
+                        mgr.cfg.independent_fullscreen_popups,
+                    ))
             {
                 release_external_background(mgr, h);
             }
