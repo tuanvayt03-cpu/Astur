@@ -5661,7 +5661,7 @@ impl Manager {
     ) {
         let scrolling = !floating && self.monitors[mi].layout == "scrolling";
         let ws = &mut self.monitors[mi].workspaces[wi];
-        if scrolling && let Some(overlay) = ws.overlay.as_mut() {
+        if let Some(overlay) = ws.overlay.as_mut().filter(|_| scrolling) {
             // The incoming HWND takes the precise physical slot under a
             // cross-display drop. No ensure_visible and no intermediate
             // insertion into the first scrolling column.
