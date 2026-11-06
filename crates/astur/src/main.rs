@@ -5661,6 +5661,7 @@ impl Manager {
             // insertion into the first scrolling column.
             let target = match at {
                 Some(DropAt::Below(t) | DropAt::Before(t) | DropAt::After(t)) => overlay.slot_of(t),
+                Some(DropAt::Index(i)) if i < overlay.slots.len() => Some(i),
                 _ => None,
             };
             ws.windows.push(h);
@@ -13668,7 +13669,7 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 release_external_background(mgr, h);
             }
             reconcile_independence(mgr, h);
-        },
+        }
         Cmd::Add(h, event) => {
             ev_count(EVC_ADD);
             match mgr.locate(h) {
@@ -14017,7 +14018,7 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
         Cmd::Remove(h) => {
             release_external_background(mgr, h);
             untrack_window(mgr, h);
-        },
+        }
         Cmd::RemoveHidden(h) => {
             // An app-driven hide (close-to-tray etc.), queued at event time. The
             // app may have shown the window again before this runs, and that
@@ -14835,7 +14836,20 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     // A drop INSIDE a destination slot always consumes that
                     // exact slot, even near its border, never a default
                     // insertion after the focused column.
-                    let at = if scrolling {
+                    let destination_slot = if scrolling {
+                        mgr.monitors[to_mi].workspaces[to_a].overlay.as_ref()
+                            .and_then(|overlay| overlay.slot_at_point(
+                                mgr.monitors[to_mi].work_area,
+                                mgr.cfg.inner_gap,
+                                mgr.cfg.outer_gap,
+                                pt.x, pt.y,
+                            ))
+                    } else {
+                        None
+                    };
+                    let at = if let Some(i) = destination_slot {
+                        Some(DropAt::Index(i))
+                    } else if scrolling {
                         target.map(DropAt::Below).or(zone)
                     } else {
                         target
@@ -14852,7 +14866,9 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     if !mgr.move_window(h, to_mi, to_a, at) {
                         return;
                     }
-                    if scrolling && target.is_some() {
+                    if scrolling && target.is_some()
+                        && mgr.monitors[to_mi].workspaces[to_a].overlay.is_none()
+                    {
                         let ws = &mut mgr.monitors[to_mi].workspaces[to_a];
                         // A consumed occupied slot is an implicit stack, not
                         // an unsolicited manual Tab Mode/title bar.
@@ -19323,13 +19339,11 @@ unsafe fn tab_bars_build(mgr: &Manager) -> Vec<TabBarData> {
     let colors = (r.bg, r.fg, r.accent, r.muted);
     for (mi, m) in mgr.monitors.iter().enumerate() {
         // The no-tabs case (nearly always) costs a scan of the column metadata.
-        let Some(ws) = m
-            .workspaces
-            .get(m.active)
-            .filter(|ws| m.layout == "scrolling"
+        let Some(ws) = m.workspaces.get(m.active).filter(|ws| {
+            m.layout == "scrolling"
                 && ws.overlay.is_none()
-                && ws.strip.cols.values().any(|c| c.tabbed))
-        else {
+                && ws.strip.cols.values().any(|c| c.tabbed)
+        }) else {
             continue;
         };
         let tiled = scroll_layout_windows(ws);
