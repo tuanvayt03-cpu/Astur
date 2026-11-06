@@ -4186,6 +4186,7 @@ impl PinnedOverlay {
         out
     }
 
+    #[cfg(test)]
     fn valid(&self, members: &[isize]) -> bool {
         (self.external_background || members.contains(&self.background))
             && self
@@ -4912,6 +4913,12 @@ fn pinned_background_candidate(ws: &Workspace, tiled: &[isize]) -> Option<isize>
         .col_meta(&[h])
         .filter(|m| m.width >= 0.99)
         .map(|_| h)
+}
+
+/// Existing overlays own their slots even when a rule places a window in a
+/// currently hidden workspace. Only creating a NEW background needs visibility.
+fn overlay_should_admit(has_overlay: bool, visible: bool, fresh_background: bool) -> bool {
+    has_overlay || (visible && fresh_background)
 }
 
 fn pinned_slot_count(default_width: f32) -> usize {
@@ -5654,8 +5661,7 @@ impl Manager {
     ) {
         let scrolling = !floating && self.monitors[mi].layout == "scrolling";
         let ws = &mut self.monitors[mi].workspaces[wi];
-        if scrolling && ws.overlay.is_some() {
-            let overlay = ws.overlay.as_mut().unwrap();
+        if scrolling && let Some(overlay) = ws.overlay.as_mut() {
             // The incoming HWND takes the precise physical slot under a
             // cross-display drop. No ensure_visible and no intermediate
             // insertion into the first scrolling column.
@@ -13785,12 +13791,14 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                             None
                         };
                     let overlay_admission =
-                        if mgr.monitors[mi].layout == "scrolling" && !floating && visible {
+                        if mgr.monitors[mi].layout == "scrolling" && !floating {
                             let ws = &mgr.monitors[mi].workspaces[wi];
-                            ws.overlay.is_some()
-                                || pinned_background_candidate(ws, &scroll_layout_windows(ws))
+                            let fresh_background = visible
+                                && ws.overlay.is_none()
+                                && (pinned_background_candidate(ws, &scroll_layout_windows(ws))
                                     .is_some()
-                                || native_background.is_some()
+                                    || native_background.is_some());
+                            overlay_should_admit(ws.overlay.is_some(), visible, fresh_background)
                         } else {
                             false
                         };
@@ -30870,6 +30878,15 @@ mod tests {
         assert_eq!(s.strip_cols(&s.columns(&t), D, 0.5)[0].active, 0);
         s.toggle_tabbed(A, 0.5);
         assert!(s.hidden_tabs(&t, D).is_empty(), "stacked again");
+    }
+
+    #[test]
+    fn existing_overlay_accepts_admission_into_hidden_workspace() {
+        assert!(overlay_should_admit(true, false, false));
+        assert!(overlay_should_admit(true, true, false));
+        assert!(overlay_should_admit(false, true, true));
+        assert!(!overlay_should_admit(false, false, true));
+        assert!(!overlay_should_admit(false, true, false));
     }
 
     #[test]
