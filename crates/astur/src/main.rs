@@ -818,6 +818,10 @@ static NATIVE_DRAG_MONITOR: AtomicIsize = AtomicIsize::new(0);
 static NATIVE_DRAG_CAPTION: AtomicBool = AtomicBool::new(false);
 static NATIVE_DRAG_ORIGIN_X: AtomicI32 = AtomicI32::new(0);
 static NATIVE_DRAG_ORIGIN_Y: AtomicI32 = AtomicI32::new(0);
+static NATIVE_DRAG_RECT_LEFT: AtomicI32 = AtomicI32::new(0);
+static NATIVE_DRAG_RECT_TOP: AtomicI32 = AtomicI32::new(0);
+static NATIVE_DRAG_RECT_WIDTH: AtomicI32 = AtomicI32::new(0);
+static NATIVE_DRAG_RECT_HEIGHT: AtomicI32 = AtomicI32::new(0);
 
 /// Be conservative: exclude side/top resize grips. Only the ordinary
 /// caption strip qualifies for modifier-free cross-monitor transfers.
@@ -831,6 +835,22 @@ fn native_caption_drag_origin(pt: POINT, rect: RECT, style: u32) -> bool {
         && pt.x < rect.right - 16
         && pt.y >= rect.top + 8
         && pt.y < rect.top + 96.min(height / 3)
+}
+
+/// Some native/custom caption frames omit WS_CAPTION even though Windows
+/// delivered a real MOVESIZESTART/END. Use the actual geometry at release
+/// as a second proof of a MOVE, not just a fixed-height title-bar guess.
+fn native_geometry_was_moved(start: RECT, end: RECT, begin: POINT, release: POINT) -> bool {
+    let sw = start.right - start.left;
+    let sh = start.bottom - start.top;
+    let ew = end.right - end.left;
+    let eh = end.bottom - end.top;
+    sw > 0
+        && sh > 0
+        && (sw - ew).abs() <= 3
+        && (sh - eh).abs() <= 3
+        && ((end.left - start.left).abs() >= 12 || (end.top - start.top).abs() >= 12)
+        && ((release.x - begin.x).abs() >= 12 || (release.y - begin.y).abs() >= 12)
 }
 
 fn native_caption_transfer(
@@ -4789,7 +4809,10 @@ fn scroll_slot_swap_allowed(
     let Some((target_col, _)) = locate_tile(&cols, target) else {
         return false;
     };
-    let q = (target_rect.right - target_rect.left) / 4;
+    // A narrow 1/4-width drop zone made a near-centre mouse release
+    // unexpectedly turn into an insertion/recenter, which looks like a
+    // locked slot. Reserve only the outer eighth for explicit edge insert.
+    let q = (target_rect.right - target_rect.left) / 8;
     source_col != target_col && pt.x >= target_rect.left + q && pt.x < target_rect.right - q
 }
 
@@ -13336,6 +13359,24 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         } else {
                             (None, None)
                         };
+                    if log_on(LOG_DEBUG)
+                        && mgr.monitors[mi].layout == "scrolling"
+                        && !floating
+                    {
+                        let ws = &mgr.monitors[mi].workspaces[wi];
+                        let tiled = scroll_layout_windows(ws);
+                        let cols = ws.strip.columns(&tiled);
+                        let full_width = cols.iter().any(|col| {
+                            ws.strip
+                                .col_meta(col)
+                                .is_some_and(|m| m.width >= 0.99)
+                        });
+                        log_debug!(
+                            "scroll admission hwnd={h:#x} monitor={mi} workspace={wi} anchor={prev_focus:#x} columns={} full_width={full_width} offset={} at={at:?} stack={tab_target:?}",
+                            cols.len(),
+                            ws.strip.offset,
+                        );
+                    }
                     // Keep the old anchor stable until slot membership and
                     // stack presentation are committed; the fallback (no
                     // policy slot) retains legacy reveal behavior.
@@ -20557,12 +20598,27 @@ unsafe extern "system" fn win_event_proc(
             );
             let mut pt = POINT::default();
             let mut rect = RECT::default();
-            let began_on_caption = GetCursorPos(&mut pt).is_ok()
-                && GetWindowRect(hwnd, &mut rect).is_ok()
+            let has_point = GetCursorPos(&mut pt).is_ok();
+            let has_rect = GetWindowRect(hwnd, &mut rect).is_ok();
+            let began_on_caption = has_point
+                && has_rect
                 && native_caption_drag_origin(pt, rect, GetWindowLongW(hwnd, GWL_STYLE) as u32);
             NATIVE_DRAG_CAPTION.store(began_on_caption, Ordering::Relaxed);
             NATIVE_DRAG_ORIGIN_X.store(pt.x, Ordering::Relaxed);
             NATIVE_DRAG_ORIGIN_Y.store(pt.y, Ordering::Relaxed);
+            // Valid start geometry allows native/custom-titlebar applications
+            // to be recognized by real window movement even without WS_CAPTION.
+            // No synchronous message, mouse capture or click interception.
+            NATIVE_DRAG_RECT_LEFT.store(rect.left, Ordering::Relaxed);
+            NATIVE_DRAG_RECT_TOP.store(rect.top, Ordering::Relaxed);
+            NATIVE_DRAG_RECT_WIDTH.store(
+                if has_rect { rect.right - rect.left } else { 0 },
+                Ordering::Relaxed,
+            );
+            NATIVE_DRAG_RECT_HEIGHT.store(
+                if has_rect { rect.bottom - rect.top } else { 0 },
+                Ordering::Relaxed,
+            );
             cancel_glide();
         }
         EVENT_SYSTEM_MOVESIZEEND => {
@@ -20571,6 +20627,10 @@ unsafe extern "system" fn win_event_proc(
             let started_caption = NATIVE_DRAG_CAPTION.swap(false, Ordering::Relaxed);
             let start_x = NATIVE_DRAG_ORIGIN_X.swap(0, Ordering::Relaxed);
             let start_y = NATIVE_DRAG_ORIGIN_Y.swap(0, Ordering::Relaxed);
+            let initial_left = NATIVE_DRAG_RECT_LEFT.swap(0, Ordering::Relaxed);
+            let initial_top = NATIVE_DRAG_RECT_TOP.swap(0, Ordering::Relaxed);
+            let initial_width = NATIVE_DRAG_RECT_WIDTH.swap(0, Ordering::Relaxed);
+            let initial_height = NATIVE_DRAG_RECT_HEIGHT.swap(0, Ordering::Relaxed);
             if is_managed(h) || independent_seen(h) {
                 push_cmd(Cmd::RefreshIndependence(h));
             }
@@ -20578,23 +20638,48 @@ unsafe extern "system" fn win_event_proc(
             let mut rect = RECT::default();
             let has_rect = GetCursorPos(&mut pt).is_ok() && GetWindowRect(hwnd, &mut rect).is_ok();
             let moved = (pt.x - start_x).abs() >= 12 || (pt.y - start_y).abs() >= 12;
+            let zoomed = IsZoomed(hwnd).as_bool();
             let transferred = has_rect
                 && native_caption_transfer(
                     started_caption,
                     start_monitor,
                     MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST).0 as isize,
-                    IsZoomed(hwnd).as_bool(),
+                    zoomed,
                 );
-            if source == h
+            let initial = RECT {
+                left: initial_left,
+                top: initial_top,
+                right: initial_left + initial_width,
+                bottom: initial_top + initial_height,
+            };
+            let geometry_moved = has_rect
+                && native_geometry_was_moved(
+                    initial,
+                    rect,
+                    POINT { x: start_x, y: start_y },
+                    pt,
+                );
+            let as_move = source == h
                 && is_managed(h)
                 && has_rect
-                && !IsZoomed(hwnd).as_bool()
-                && (transferred || (started_caption && moved))
-            {
-                // Reuse Alt-drag for *same-monitor* slot movement too. Native
-                // caption input remains owned by Windows; resize grips, Snap
-                // maximize and negligible caption clicks stay on their path.
-                push_cmd(Cmd::DragMoved(h, pt.x, pt.y, rect, moved || transferred));
+                && !zoomed
+                && (transferred || (started_caption && moved) || geometry_moved);
+            if log_on(LOG_DEBUG) && source == h && is_managed(h) {
+                log_debug!(
+                    "native drag hwnd={h:#x} caption={started_caption} cursor_moved={moved} geom_move={geometry_moved} transferred={transferred} accepted={as_move} zoomed={zoomed}"
+                );
+            }
+            if as_move {
+                // Geometry-classified moves support custom caption bars that
+                // do enter the native Win32 move loop. Real resizes retain
+                // their existing tile-ratio path and regular app clicks pass.
+                push_cmd(Cmd::DragMoved(
+                    h,
+                    pt.x,
+                    pt.y,
+                    rect,
+                    moved || transferred || geometry_moved,
+                ));
             } else {
                 push_cmd(Cmd::DragResized(h, None));
             }
@@ -26636,6 +26721,44 @@ mod tests {
         assert!(!native_caption_transfer(true, 11, 11, false));
         assert!(!native_caption_transfer(true, 11, 22, true));
         assert!(!native_caption_transfer(true, 0, 22, false));
+    }
+
+    #[test]
+    fn custom_caption_native_move_is_detected_by_geometry_without_ws_caption() {
+        let before = rect(100, 200, 800, 700);
+        let after = rect(420, 205, 1120, 705);
+        assert!(native_geometry_was_moved(
+            before, after,
+            POINT { x: 400, y: 220 },
+            POINT { x: 720, y: 225 },
+        ));
+        // Native resize from the left changes its size: NOT a move.
+        assert!(!native_geometry_was_moved(
+            before,
+            rect(220, 200, 800, 700),
+            POINT { x: 100, y: 400 },
+            POINT { x: 220, y: 400 },
+        ));
+        // A click with no actual window translation remains a click.
+        assert!(!native_geometry_was_moved(
+            before, before,
+            POINT { x: 300, y: 220 },
+            POINT { x: 310, y: 225 },
+        ));
+        // An in-app pointer movement that never moved the top-level HWND
+        // must not be interpreted as moving a Chrome tab/window.
+        assert!(!native_geometry_was_moved(
+            before, before,
+            POINT { x: 300, y: 220 },
+            POINT { x: 620, y: 220 },
+        ));
+        // Cross-screen coordinates can be negative.
+        assert!(native_geometry_was_moved(
+            rect(-1800, 50, -800, 750),
+            rect(30, 50, 1030, 750),
+            POINT { x: -1000, y: 70 },
+            POINT { x: 830, y: 70 },
+        ));
     }
 
     #[test]
