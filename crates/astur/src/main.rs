@@ -14837,13 +14837,18 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     // exact slot, even near its border, never a default
                     // insertion after the focused column.
                     let destination_slot = if scrolling {
-                        mgr.monitors[to_mi].workspaces[to_a].overlay.as_ref()
-                            .and_then(|overlay| overlay.slot_at_point(
-                                mgr.monitors[to_mi].work_area,
-                                mgr.cfg.inner_gap,
-                                mgr.cfg.outer_gap,
-                                pt.x, pt.y,
-                            ))
+                        mgr.monitors[to_mi].workspaces[to_a]
+                            .overlay
+                            .as_ref()
+                            .and_then(|overlay| {
+                                overlay.slot_at_point(
+                                    mgr.monitors[to_mi].work_area,
+                                    mgr.cfg.inner_gap,
+                                    mgr.cfg.outer_gap,
+                                    pt.x,
+                                    pt.y,
+                                )
+                            })
                     } else {
                         None
                     };
@@ -14866,7 +14871,8 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     if !mgr.move_window(h, to_mi, to_a, at) {
                         return;
                     }
-                    if scrolling && target.is_some()
+                    if scrolling
+                        && target.is_some()
                         && mgr.monitors[to_mi].workspaces[to_a].overlay.is_none()
                     {
                         let ws = &mut mgr.monitors[to_mi].workspaces[to_a];
