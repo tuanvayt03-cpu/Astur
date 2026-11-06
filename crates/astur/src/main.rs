@@ -4813,9 +4813,7 @@ fn scroll_slot_swap_allowed(
     // unexpectedly turn into an insertion/recenter, which looks like a
     // locked slot. Reserve only the outer eighth for explicit edge insert.
     let edge = scroll_drop_edge(target_rect.right - target_rect.left);
-    source_col != target_col
-        && pt.x >= target_rect.left + edge
-        && pt.x < target_rect.right - edge
+    source_col != target_col && pt.x >= target_rect.left + edge && pt.x < target_rect.right - edge
 }
 
 /// A real drag released at the physical top edge maximizes the window. The
