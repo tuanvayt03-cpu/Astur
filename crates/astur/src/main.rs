@@ -4108,6 +4108,81 @@ impl PinnedOverlay {
         index
     }
 
+    /// Reconcile a saved overlay with the surviving tiled HWNDs after a
+    /// monitor/workspace rebuild. Keep slot identities and active members when
+    /// possible; bring windows re-homed from a removed monitor into a slot.
+    /// Never treat a floating surface as an overlay member.
+    fn reconcile_members(&mut self, tiled: &[isize]) -> bool {
+        if !self.external_background && !tiled.contains(&self.background) {
+            return false;
+        }
+        let mut seen = HashSet::new();
+        for slot in &mut self.slots {
+            slot.members
+                .retain(|h| *h != self.background && tiled.contains(h) && seen.insert(*h));
+            if !slot.members.contains(&slot.active) {
+                slot.active = slot.members.last().copied().unwrap_or(0);
+            }
+        }
+        self.selected = self
+            .selected
+            .filter(|&i| self.slots.get(i).is_some_and(|s| s.active != 0));
+        self.previous = self.previous.filter(|&i| {
+            Some(i) != self.selected && self.slots.get(i).is_some_and(|s| s.active != 0)
+        });
+        for &h in tiled {
+            if h != self.background && seen.insert(h) {
+                self.admit(h);
+            }
+        }
+        if self.selected.is_none() {
+            self.selected = self.slots.iter().position(|s| s.active != 0);
+        }
+        self.valid(tiled)
+    }
+
+    /// A real minimize keeps the HWND reserved in its slot. Select an
+    /// available occupant from the same slot first, then another foreground
+    /// slot, then the managed background. No other slot is moved.
+    fn minimize_successor(&mut self, h: isize, available: &[isize]) -> Option<isize> {
+        if let Some(i) = self.slot_of(h) {
+            if self.slots[i].active == h {
+                if let Some(&next) = self.slots[i]
+                    .members
+                    .iter()
+                    .rev()
+                    .find(|&&m| m != h && available.contains(&m))
+                {
+                    self.slots[i].active = next;
+                }
+            }
+        }
+        let next = self
+            .selected
+            .and_then(|i| self.slots.get(i))
+            .map(|s| s.active)
+            .filter(|h| available.contains(h))
+            .or_else(|| {
+                self.slots
+                    .iter()
+                    .map(|s| s.active)
+                    .find(|h| available.contains(h))
+            })
+            .or_else(|| {
+                (!self.external_background && available.contains(&self.background))
+                    .then_some(self.background)
+            });
+        if let Some(target) = next {
+            if let Some(i) = self.slot_of(target) {
+                if self.selected != Some(i) {
+                    self.previous = self.selected;
+                    self.selected = Some(i);
+                }
+            }
+        }
+        next
+    }
+
     fn remove(&mut self, h: isize) -> bool {
         if h == self.background {
             return !self.external_background;
@@ -9144,13 +9219,52 @@ unsafe fn strip_reveal(mgr: &mut Manager, h: isize) {
         return;
     };
     if mgr.monitors[mi].workspaces[wi].overlay.is_some() {
-        let ws = &mut mgr.monitors[mi].workspaces[wi];
-        if let Some(overlay) = &mut ws.overlay {
+        // Model and physical placement must be reconciled in the SAME
+        // activation. A parked HWND may already be the OS foreground even
+        // though the overlay still calls another member active.
+        let recover = window_is_physically_parked(h) || was_hidden_by_us(h);
+        let mut reveal = false;
+        {
+            let ws = &mut mgr.monitors[mi].workspaces[wi];
+            let overlay = ws.overlay.as_mut().unwrap();
             if overlay.activate(h) {
-                ws.focused = h;
-                mgr.focused_mon = mi;
-                retile_monitor(mgr, mi);
+                reveal = true;
+            } else if h == overlay.background {
+                // A managed background may receive explicit taskbar focus.
+                // Do not raise foreground slots over it merely for focusing.
+                reveal = recover;
+            } else if ws.windows.contains(&h) && !ws.floating.contains(&h) {
+                // Missing membership is a real state inconsistency, not a
+                // reason to return with a foreground HWND parked offscreen.
+                // Admit only this managed, tiled target into a physical slot.
+                log_debug!("overlay membership repaired hwnd={h:#x} mon={mi} ws={wi}");
+                overlay.admit(h);
+                reveal = true;
             }
+            if reveal {
+                ws.focused = h;
+            }
+        }
+        if reveal {
+            mgr.focused_mon = mi;
+            let slot = mgr.monitors[mi].workspaces[wi]
+                .overlay
+                .as_ref()
+                .and_then(|o| o.slot_of(h));
+            log_debug!(
+                "overlay reveal requested hwnd={h:#x} mon={mi} ws={wi} slot={slot:?} parked={recover} iconic={} visible={}",
+                IsIconic(hwnd_from(h)).as_bool(),
+                IsWindowVisible(hwnd_from(h)).as_bool()
+            );
+            if was_hidden_by_us(h) && h != SCRATCHPAD_HWND.load(Ordering::Relaxed) {
+                unmark_hidden_by_us(h);
+                SUPPRESS.store(true, Ordering::Relaxed);
+                let _ = ShowWindow(hwnd_from(h), SW_SHOWNA);
+                SUPPRESS.store(false, Ordering::Relaxed);
+            }
+            // A parked activation is a correctness repair, not an animation:
+            // place it synchronously to its slot before treating focus as done.
+            retile_monitor_opts(mgr, mi, recover);
         }
         return;
     }
@@ -13021,9 +13135,15 @@ unsafe fn refresh_monitors(mgr: &mut Manager) {
     // touched, and windows arriving from a gone monitor are columns of their
     // own at the end.
     let mut strips: Vec<(isize, usize, Strip)> = Vec::new();
+    let mut overlays: Vec<(isize, usize, PinnedOverlay)> = Vec::new();
+    let mut old_focuses: Vec<(isize, usize, isize)> = Vec::new();
     for mon in mgr.monitors.iter_mut() {
         for (wi, ws) in mon.workspaces.iter_mut().enumerate() {
             strips.push((mon.hmon, wi, std::mem::take(&mut ws.strip)));
+            old_focuses.push((mon.hmon, wi, ws.focused));
+            if let Some(overlay) = ws.overlay.take() {
+                overlays.push((mon.hmon, wi, overlay));
+            }
         }
     }
     let mut fresh = enumerate_monitors();
@@ -13089,6 +13209,53 @@ unsafe fn refresh_monitors(mgr: &mut Manager) {
             }
             if ws.focused == 0 {
                 ws.focused = h;
+            }
+        }
+    }
+    // Restore pinned presentation only for surviving physical monitors and
+    // scrolling workspaces. Reconcile membership AFTER the re-home pass, so
+    // removed HWNDs cannot produce ghost CS slots, and incoming HWNDs have
+    // deterministic slots rather than vanishing behind a stale strip.
+    for (hmon, wi, mut overlay) in overlays {
+        let Some(mi) = mgr.mon_by_hmon(hmon) else {
+            continue;
+        };
+        if mgr.monitors[mi].layout != "scrolling" {
+            continue;
+        }
+        let Some(ws) = mgr.monitors[mi].workspaces.get_mut(wi) else {
+            continue;
+        };
+        if overlay.external_background
+            && (!IsWindow(hwnd_from(overlay.background)).as_bool()
+                || !IsZoomed(hwnd_from(overlay.background)).as_bool())
+        {
+            continue;
+        }
+        let tiled: Vec<isize> = ws
+            .windows
+            .iter()
+            .copied()
+            .filter(|h| !ws.floating.contains(h))
+            .collect();
+        if overlay.reconcile_members(&tiled) {
+            ws.overlay = Some(overlay);
+        }
+    }
+    for (hmon, wi, focused) in old_focuses {
+        if let Some(mi) = mgr.mon_by_hmon(hmon) {
+            if let Some(ws) = mgr.monitors[mi].workspaces.get_mut(wi) {
+                if ws.windows.contains(&focused)
+                    || ws
+                        .overlay
+                        .as_ref()
+                        .is_some_and(|o| o.external_background && o.background == focused)
+                {
+                    ws.focused = focused;
+                    if let Some(overlay) = ws.overlay.as_mut() {
+                        overlay.activate(focused);
+                    }
+                }
             }
         }
     }
@@ -13426,6 +13593,14 @@ unsafe fn set_monitor_layout(mgr: &mut Manager, mi: usize, layout: String) {
     // need a cold snapshot.
     if mgr.monitors[mi].layout == "scrolling" && layout != "scrolling" {
         cold_clear();
+    }
+    // An overlay belongs to scrolling geometry, not to a different layout.
+    // Explicitly dissolve it across the monitor's workspaces before a
+    // layout switch, then ordinary tiling recovers every formerly parked HWND.
+    if layout != "scrolling" {
+        for ws in &mut mgr.monitors[mi].workspaces {
+            ws.overlay = None;
+        }
     }
     mgr.monitors[mi].layout = layout;
     let a = mgr.monitors[mi].active;
@@ -14160,16 +14335,15 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     switch_monitor_workspace(mgr, mi, wi);
                     if iconic {
                         let _ = ShowWindow(hwnd, SW_RESTORE);
-                        retile_monitor(mgr, mi);
                     }
-                } else {
-                    strip_reveal(mgr, h);
-                    if iconic {
-                        // After Windows restores a minimized HWND, its old
-                        // normal rect may be on-screen but not match the
-                        // reserved Astur slot; force one placement.
-                        retile_monitor(mgr, mi);
-                    }
+                }
+                // Switching workspaces alone can retile the OLD overlay
+                // occupant. Reveal this requested HWND in its own slot too.
+                strip_reveal(mgr, h);
+                if iconic {
+                    // The restored normal rect may not match its reserved slot
+                    // even when Windows says the window is on-screen.
+                    retile_monitor_opts(mgr, mi, true);
                 }
                 touch_window_mru(h);
                 focus_window(h);
@@ -14198,6 +14372,9 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 {
                     mgr.focused_mon = mi;
                     mgr.monitors[mi].workspaces[wi].focused = h;
+                    if mgr.monitors[mi].workspaces[wi].overlay.is_some() {
+                        strip_reveal(mgr, h);
+                    }
                     focus_window(h);
                 }
             }
@@ -14211,6 +14388,7 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     } else {
                         let f = mgr.monitors[mi].workspaces[local].focused;
                         if f != 0 {
+                            strip_reveal(mgr, f);
                             focus_window(f);
                         }
                     }
@@ -14218,28 +14396,17 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
             }
         }
         Cmd::BarFocus(h) => {
-            // App button clicked: focus that window (same effect as clicking
-            // it, so a parked strip tile scrolls into view first).
+            // Bar buttons and keyboard activation share one restore/switch/
+            // reveal path. Focusing first left hidden-workspace windows
+            // foregrounded while their overlay member remained parked.
             if IsWindow(hwnd_from(h)).as_bool() {
-                // The bar can refer to windows from other workspaces. Never
-                // restore one onto the currently shown desktop before its
-                // own workspace is switched in by the activation path.
-                let active_here = mgr
-                    .locate(h)
-                    .is_some_and(|(mi, wi)| wi == mgr.monitors[mi].active);
-                let restored = active_here && IsIconic(hwnd_from(h)).as_bool();
-                if restored {
-                    let _ = ShowWindow(hwnd_from(h), SW_RESTORE);
+                if mgr.locate(h).is_some() {
+                    process(mgr, Cmd::ActivateWindow(h));
+                } else {
+                    // Native, independently maximized backgrounds are not
+                    // managed tiles and must remain independent.
+                    focus_window(h);
                 }
-                strip_reveal(mgr, h);
-                if restored {
-                    if let Some((mi, wi)) = mgr.locate(h) {
-                        if wi == mgr.monitors[mi].active {
-                            retile_monitor(mgr, mi);
-                        }
-                    }
-                }
-                focus_window(h);
             }
         }
         Cmd::Extra(index) => process_extra(mgr, index),
@@ -14588,19 +14755,31 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                 if let Some((mi, wi)) = mgr.locate(h) {
                     if mgr.monitors[mi].layout == "scrolling" {
                         let ws = &mut mgr.monitors[mi].workspaces[wi];
-                        if ws.focused == h {
+                        let live: Vec<isize> = ws
+                            .windows
+                            .iter()
+                            .copied()
+                            .filter(|w| {
+                                !ws.floating.contains(w)
+                                    && *w != h
+                                    && IsWindow(hwnd_from(*w)).as_bool()
+                                    && !IsIconic(hwnd_from(*w)).as_bool()
+                            })
+                            .collect();
+                        if let Some(overlay) = &mut ws.overlay {
+                            // A minimized foreground occupant is still a
+                            // member of its reserved CS slot. Only its ACTIVE
+                            // presentation may change; never shift other CS.
+                            let next = overlay.minimize_successor(h, &live);
+                            if ws.focused == h {
+                                if let Some(next) = next {
+                                    ws.focused = next;
+                                    ws.strip.synthetic_reveal_guard =
+                                        Some((next, GetTickCount64().saturating_add(900)));
+                                }
+                            }
+                        } else if ws.focused == h {
                             let cols = ws.strip.columns(&scroll_layout_windows(ws));
-                            let live: Vec<isize> = ws
-                                .windows
-                                .iter()
-                                .copied()
-                                .filter(|w| {
-                                    !ws.floating.contains(w)
-                                        && *w != h
-                                        && IsWindow(hwnd_from(*w)).as_bool()
-                                        && !IsIconic(hwnd_from(*w)).as_bool()
-                                })
-                                .collect();
                             if let Some(next) = scroll_minimize_successor(&cols, h, &live) {
                                 ws.focused = next;
                                 ws.strip.note_focus(next);
@@ -30937,6 +31116,49 @@ mod tests {
         assert!(!overlay.remove(5));
         assert_eq!(overlay.slots[0].active, 3);
         assert!(overlay.valid(&[1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn pinned_refresh_keeps_reserved_members_and_repairs_changed_inventory() {
+        let mut overlay = PinnedOverlay::new(1, 2);
+        overlay.admit(2);
+        overlay.admit(3);
+        overlay.admit(4);
+        assert!(overlay.activate(2));
+        assert!(overlay.reconcile_members(&[1, 2, 3, 4]));
+        assert_eq!(overlay.slots[1].active, 2);
+        assert_eq!(overlay.selected, Some(1));
+        assert!(overlay.valid(&[1, 2, 3, 4]));
+
+        // Monitor removal re-homes 5, while 3 was destroyed.
+        assert!(overlay.reconcile_members(&[1, 2, 4, 5]));
+        assert_eq!(overlay.slots[1].active, 2);
+        assert_eq!(overlay.slot_of(3), None);
+        assert_eq!(overlay.slot_of(5), Some(0));
+        assert!(overlay.valid(&[1, 2, 4, 5]));
+        assert!(!overlay.reconcile_members(&[2, 4, 5])); // missing CS1
+    }
+
+    #[test]
+    fn pinned_minimize_preserves_slot_and_finds_live_successor() {
+        let mut overlay = PinnedOverlay::new(1, 2);
+        overlay.admit(2);
+        overlay.admit(3);
+        overlay.admit(4);
+        assert_eq!(overlay.slots[1].active, 4);
+        assert_eq!(overlay.minimize_successor(4, &[1, 2, 3]), Some(2));
+        assert_eq!(overlay.slots[1].active, 2);
+        assert_eq!(overlay.selected, Some(1));
+        assert_eq!(overlay.hidden(), vec![4]);
+        // When the last live occupant in CS2 is minimized, CS3 gains focus;
+        // CS2 remains reserved and the user can restore its HWND later.
+        assert_eq!(overlay.minimize_successor(2, &[1, 3]), Some(3));
+        assert_eq!(overlay.selected, Some(0));
+        assert_eq!(overlay.slots[1].members, vec![2, 4]);
+        assert!(overlay.valid(&[1, 2, 3, 4]));
+        assert!(overlay.activate(4));
+        assert_eq!(overlay.slots[1].active, 4);
+        assert_eq!(overlay.selected, Some(1));
     }
 
     #[test]
