@@ -1,7 +1,7 @@
 # ASTUR | GUI CONTROL MANIFEST V2 | 2026-11-09
 
-**Source baseline:** release `.19`, `crates/astur-settings/src/main.rs` blob `ad4f8567070dbd5d421991ea21d77ecf398e54ab`  
-**Source length:** 11842 lines  
+**Source baseline:** release `.19`, `crates/astur-settings/src/main.rs` blob `ad4f8567070dbd5d421991ea21d77ecf398e54ab`
+**Source length:** 11842 lines
 **Status:** `CONTROL-SURFACE INVENTORY COMPLETE ENOUGH FOR PARITY GATE / DESKTOP INTERACTION NOT VERIFIED`
 
 A static scan found **209 page-local helper/direct control call sites** across the 14 page bodies. This number is not a user-visible control count because helpers expand into rows/tables and some calls are structural. The manifest below records the behavior surfaces a redesign must preserve.
