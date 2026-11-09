@@ -133,8 +133,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx, WindowFromPoint, GA_ROOT,
     GA_ROOTOWNER, HC_ACTION, HHOOK, HWND_TOPMOST, KBDLLHOOKSTRUCT, LAYERED_WINDOW_ATTRIBUTES_FLAGS,
     LLKHF_INJECTED, LWA_ALPHA, MSG, MSLLHOOKSTRUCT, SET_WINDOW_POS_FLAGS, SWP_ASYNCWINDOWPOS,
-    SWP_NOACTIVATE, SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE,
-    SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNA, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
     WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
     WNDCLASSW, WS_EX_APPWINDOW, WS_EX_DLGMODALFRAME, WS_EX_LAYERED, WS_EX_NOACTIVATE,
@@ -4261,6 +4261,7 @@ impl PinnedOverlay {
         out
     }
 
+    // Also used by monitor refresh reconciliation in non-test builds.
     fn valid(&self, members: &[isize]) -> bool {
         (self.external_background || members.contains(&self.background))
             && self
@@ -4987,6 +4988,12 @@ fn pinned_background_candidate(ws: &Workspace, tiled: &[isize]) -> Option<isize>
         .col_meta(&[h])
         .filter(|m| m.width >= 0.99)
         .map(|_| h)
+}
+
+/// Existing overlays own their slots even when a rule places a window in a
+/// currently hidden workspace. Only creating a NEW background needs visibility.
+fn overlay_should_admit(has_overlay: bool, visible: bool, fresh_background: bool) -> bool {
+    has_overlay || (visible && fresh_background)
 }
 
 fn pinned_slot_count(default_width: f32) -> usize {
@@ -5729,8 +5736,7 @@ impl Manager {
     ) {
         let scrolling = !floating && self.monitors[mi].layout == "scrolling";
         let ws = &mut self.monitors[mi].workspaces[wi];
-        if scrolling && ws.overlay.is_some() {
-            let overlay = ws.overlay.as_mut().unwrap();
+        if let Some(overlay) = ws.overlay.as_mut().filter(|_| scrolling) {
             // The incoming HWND takes the precise physical slot under a
             // cross-display drop. No ensure_visible and no intermediate
             // insertion into the first scrolling column.
@@ -13959,16 +13965,17 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         } else {
                             None
                         };
-                    let overlay_admission =
-                        if mgr.monitors[mi].layout == "scrolling" && !floating && visible {
-                            let ws = &mgr.monitors[mi].workspaces[wi];
-                            ws.overlay.is_some()
-                                || pinned_background_candidate(ws, &scroll_layout_windows(ws))
-                                    .is_some()
-                                || native_background.is_some()
-                        } else {
-                            false
-                        };
+                    let overlay_admission = if mgr.monitors[mi].layout == "scrolling" && !floating {
+                        let ws = &mgr.monitors[mi].workspaces[wi];
+                        let fresh_background = visible
+                            && ws.overlay.is_none()
+                            && (pinned_background_candidate(ws, &scroll_layout_windows(ws))
+                                .is_some()
+                                || native_background.is_some());
+                        overlay_should_admit(ws.overlay.is_some(), visible, fresh_background)
+                    } else {
+                        false
+                    };
                     let anchored = if mgr.monitors[mi].layout == "scrolling"
                         && !floating
                         && !quiet
@@ -14248,10 +14255,14 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                         .is_some_and(|(w, until)| w == h && GetTickCount64() <= until);
                     let needs_recovery =
                         slot_activation_needs_retile(&mgr.monitors[mi].workspaces[wi], h);
-                    if !skip_reveal {
+                    let pinned_overlay = mgr.monitors[mi].workspaces[wi].overlay.is_some();
+                    if foreground_reveal_allowed(skip_reveal, pinned_overlay) {
                         // A real foreground action (including clicking
                         // Telegram on the taskbar) must physically unpark
                         // the HWND even if its future layout is already Full.
+                        // A synthetic focus guard only protects strip scrolling:
+                        // a pinned slot must update its active HWND on EVERY
+                        // foreground event, even if its rect is already visible.
                         if needs_recovery {
                             log_debug!("activate parked hwnd={h:#x} monitor={mi} workspace={wi}");
                         }
@@ -14268,6 +14279,10 @@ unsafe fn process(mgr: &mut Manager, cmd: Cmd) {
                     // Follow it there; pulling it out would break both layouts.
                     mgr.monitors[mi].workspaces[wi].focused = h;
                     switch_monitor_workspace(mgr, mi, wi);
+                    // Switching displays the previously active overlay member.
+                    // An explicit OS foreground request must then reveal h,
+                    // or Windows can focus an offscreen parked surface again.
+                    strip_reveal(mgr, h);
                 }
             } else {
                 // The native Windows-maximized background is intentionally
@@ -21098,6 +21113,12 @@ static WINEVENT_HOOKS_FAILED: AtomicU32 = AtomicU32::new(0);
 /// reveal, and dropping the retry strands e.g. Telegram offscreen.
 fn accept_foreground_event(same: bool, recover: bool) -> bool {
     !same || recover
+}
+
+/// A synthetic focus guard avoids moving a scrolling strip on minimize echo.
+/// Pinned slots never scroll: they must always reconcile their active HWND.
+fn foreground_reveal_allowed(skip_synthetic: bool, pinned_overlay: bool) -> bool {
+    !skip_synthetic || pinned_overlay
 }
 
 /// Does a queued Cmd::Focused(h) still describe the foreground? `fg_root` is
@@ -29311,6 +29332,18 @@ mod tests {
         assert!(accept_foreground_event(false, false));
         assert!(!accept_foreground_event(true, false));
         assert!(accept_foreground_event(true, true));
+        assert!(
+            foreground_reveal_allowed(true, true),
+            "pinned HWND must re-activate"
+        );
+        assert!(
+            foreground_reveal_allowed(false, false),
+            "explicit strip focus must reveal"
+        );
+        assert!(
+            !foreground_reveal_allowed(true, false),
+            "synthetic strip echo stays put"
+        );
     }
 
     #[test]
@@ -31049,6 +31082,15 @@ mod tests {
         assert_eq!(s.strip_cols(&s.columns(&t), D, 0.5)[0].active, 0);
         s.toggle_tabbed(A, 0.5);
         assert!(s.hidden_tabs(&t, D).is_empty(), "stacked again");
+    }
+
+    #[test]
+    fn existing_overlay_accepts_admission_into_hidden_workspace() {
+        assert!(overlay_should_admit(true, false, false));
+        assert!(overlay_should_admit(true, true, false));
+        assert!(overlay_should_admit(false, true, true));
+        assert!(!overlay_should_admit(false, false, true));
+        assert!(!overlay_should_admit(false, true, false));
     }
 
     #[test]

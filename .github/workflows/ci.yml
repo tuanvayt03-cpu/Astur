@@ -64,6 +64,47 @@ jobs:
       - name: Build release
         run: cargo build --release --workspace
 
+      # QA-only preview: no install, promotion, or release. Test only in a
+      # disposable session without live MT5 or another Astur process.
+      - name: Record pinned overlay QA provenance and SHA256
+        if: github.head_ref == 'feat/astur-pinned-overlay-20261106' || (github.event_name == 'push' && github.ref == 'refs/heads/feat/astur-pinned-overlay-20261106')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = 'target/release'
+          foreach ($file in @('astur.exe','astur-settings.exe')) {
+            $full = Join-Path $out $file
+            if (-not (Test-Path $full -PathType Leaf)) { throw "Missing QA executable: $file" }
+            if ((Get-Item $full).Length -eq 0) { throw "Empty QA executable: $file" }
+          }
+          @(
+            "Commit: $env:GITHUB_SHA"
+            "CI: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            "QA ONLY. No auto install or upgrade."
+            "Only in a disposable desktop session without MT5/SignalOps or another Astur."
+            "Read PINNED_OVERLAY_QA_ACCEPTANCE_20261106.md first."
+          ) | Set-Content (Join-Path $out 'PINNED_OVERLAY_QA_BUILD_INFO.txt') -Encoding utf8
+          @('astur.exe','astur-settings.exe') | ForEach-Object {
+            $full = Join-Path $out $_
+            $hash = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash *$_"
+          } | Set-Content (Join-Path $out 'PINNED_OVERLAY_SHA256SUMS.txt') -Encoding utf8
+
+      - name: Upload pinned overlay portable QA bundle
+        if: github.head_ref == 'feat/astur-pinned-overlay-20261106' || (github.event_name == 'push' && github.ref == 'refs/heads/feat/astur-pinned-overlay-20261106')
+        uses: actions/upload-artifact@v4
+        with:
+          name: Astur-PinnedOverlay-QA-${{ github.sha }}
+          path: |
+            target/release/astur.exe
+            target/release/astur-settings.exe
+            target/release/PINNED_OVERLAY_QA_BUILD_INFO.txt
+            target/release/PINNED_OVERLAY_SHA256SUMS.txt
+            docs/vi/PINNED_OVERLAY_QA_ACCEPTANCE_20261106.md
+            docs/vi/PINNED_BACKGROUND_OVERLAY_IMPLEMENTATION_20261106.md
+          if-no-files-found: error
+          retention-days: 14
+
       # Portable QA binary for the cross-monitor/Telegram fix, not a release.
       # Never install/launch this on top of the user's active MT5 desktop.
       - name: Record cross-monitor Telegram preview provenance
