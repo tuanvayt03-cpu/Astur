@@ -78,7 +78,8 @@ jobs:
             if ((Get-Item $full).Length -eq 0) { throw "Empty QA executable: $file" }
           }
           @(
-            "Commit: $env:GITHUB_SHA"
+            "CheckoutMergeSha: $env:GITHUB_SHA"
+            "SourceHeadSha: ${{ github.event.pull_request.head.sha || github.sha }}"
             "CI: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
             "QA ONLY. No auto install or upgrade."
             "Only in a disposable desktop session without MT5/SignalOps or another Astur."
@@ -94,7 +95,7 @@ jobs:
         if: github.head_ref == 'feat/astur-pinned-overlay-20261106' || github.head_ref == 'feat/astur-window-state-reconcile-20261107' || (github.event_name == 'push' && (github.ref == 'refs/heads/feat/astur-pinned-overlay-20261106' || github.ref == 'refs/heads/feat/astur-window-state-reconcile-20261107'))
         uses: actions/upload-artifact@v4
         with:
-          name: Astur-PinnedOverlay-QA-${{ github.sha }}
+          name: Astur-PinnedOverlay-QA-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             target/release/astur.exe
             target/release/astur-settings.exe
