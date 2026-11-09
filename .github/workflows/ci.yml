@@ -67,7 +67,7 @@ jobs:
       # QA-only preview: no install, promotion, or release. Test only in a
       # disposable session without live MT5 or another Astur process.
       - name: Record pinned overlay QA provenance and SHA256
-        if: github.head_ref == 'feat/astur-pinned-overlay-20261106' || (github.event_name == 'push' && github.ref == 'refs/heads/feat/astur-pinned-overlay-20261106')
+        if: github.head_ref == 'feat/astur-pinned-overlay-20261106' || github.head_ref == 'feat/astur-window-state-reconcile-20261107' || (github.event_name == 'push' && (github.ref == 'refs/heads/feat/astur-pinned-overlay-20261106' || github.ref == 'refs/heads/feat/astur-window-state-reconcile-20261107'))
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -91,7 +91,7 @@ jobs:
           } | Set-Content (Join-Path $out 'PINNED_OVERLAY_SHA256SUMS.txt') -Encoding utf8
 
       - name: Upload pinned overlay portable QA bundle
-        if: github.head_ref == 'feat/astur-pinned-overlay-20261106' || (github.event_name == 'push' && github.ref == 'refs/heads/feat/astur-pinned-overlay-20261106')
+        if: github.head_ref == 'feat/astur-pinned-overlay-20261106' || github.head_ref == 'feat/astur-window-state-reconcile-20261107' || (github.event_name == 'push' && (github.ref == 'refs/heads/feat/astur-pinned-overlay-20261106' || github.ref == 'refs/heads/feat/astur-window-state-reconcile-20261107'))
         uses: actions/upload-artifact@v4
         with:
           name: Astur-PinnedOverlay-QA-${{ github.sha }}
@@ -102,6 +102,7 @@ jobs:
             target/release/PINNED_OVERLAY_SHA256SUMS.txt
             docs/vi/PINNED_OVERLAY_QA_ACCEPTANCE_20261106.md
             docs/vi/PINNED_BACKGROUND_OVERLAY_IMPLEMENTATION_20261106.md
+            docs/vi/WINDOW_TRACE_RECONCILE_HANDOFF_20261107.md
           if-no-files-found: error
           retention-days: 14
 
