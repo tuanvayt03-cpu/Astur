@@ -1,7 +1,7 @@
 # ASTUR | WIN32 ENGINE AUDIT V2 | 2026-11-09
 
-**Audited ref:** PR #15 HEAD `69944546258e30bd9de761803999e9767dbf0101`  
-**Mode:** source/read-only audit; no live desktop test  
+**Audited ref:** PR #15 HEAD `69944546258e30bd9de761803999e9767dbf0101`
+**Mode:** source/read-only audit; no live desktop test
 **Verdict:** `ONE NEW CONFIRMED SOURCE GAP / THREE R2 RISKS MITIGATED BUT E2E UNPROVEN`
 
 ## 1. Ground rules
@@ -19,7 +19,7 @@ A source finding is not automatically a runtime incident. Runtime assertions req
 
 Manager loop around L20574 sets `MGR_BUSY=true` before checking `EXITING`; commands arriving after exit are dropped.
 
-`set_pos_raw` around L1197 returns immediately while `EXITING` is true.  
+`set_pos_raw` around L1197 returns immediately while `EXITING` is true.
 `switch_plain` around L12739 also returns while `EXITING` is true.
 
 ### Assessment
