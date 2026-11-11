@@ -823,6 +823,14 @@ static NATIVE_DRAG_RECT_TOP: AtomicI32 = AtomicI32::new(0);
 static NATIVE_DRAG_RECT_WIDTH: AtomicI32 = AtomicI32::new(0);
 static NATIVE_DRAG_RECT_HEIGHT: AtomicI32 = AtomicI32::new(0);
 
+/// A WinEvent MOVESIZEEND belongs to the context published for the same HWND.
+/// Windows can report overlapping move loops; an older END must never consume
+/// the newer window's shared native-drag context.
+#[inline]
+fn native_drag_end_owns(active: isize, ending: isize) -> bool {
+    active != 0 && active == ending
+}
+
 /// Be conservative: exclude side/top resize grips. Only the ordinary
 /// caption strip qualifies for modifier-free cross-monitor transfers.
 fn native_caption_drag_origin(pt: POINT, rect: RECT, style: u32) -> bool {
@@ -21301,7 +21309,6 @@ unsafe extern "system" fn win_event_proc(
         // the original tile-ratio path. A user may pull a regular caption to
         // another display; remember their origin without intercepting clicks.
         EVENT_SYSTEM_MOVESIZESTART => {
-            NATIVE_DRAG.store(h, Ordering::Relaxed);
             NATIVE_DRAG_MONITOR.store(
                 MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST).0 as isize,
                 Ordering::Relaxed,
@@ -21329,18 +21336,40 @@ unsafe extern "system" fn win_event_proc(
                 if has_rect { rect.bottom - rect.top } else { 0 },
                 Ordering::Relaxed,
             );
+            // Publish the handle last: MOVESIZEEND acquires this store before
+            // consuming the associated geometry snapshot.
+            NATIVE_DRAG.store(h, Ordering::Release);
             cancel_glide();
         }
         EVENT_SYSTEM_MOVESIZEEND => {
-            let source = NATIVE_DRAG.swap(0, Ordering::Relaxed);
-            let start_monitor = NATIVE_DRAG_MONITOR.swap(0, Ordering::Relaxed);
-            let started_caption = NATIVE_DRAG_CAPTION.swap(false, Ordering::Relaxed);
-            let start_x = NATIVE_DRAG_ORIGIN_X.swap(0, Ordering::Relaxed);
-            let start_y = NATIVE_DRAG_ORIGIN_Y.swap(0, Ordering::Relaxed);
-            let initial_left = NATIVE_DRAG_RECT_LEFT.swap(0, Ordering::Relaxed);
-            let initial_top = NATIVE_DRAG_RECT_TOP.swap(0, Ordering::Relaxed);
-            let initial_width = NATIVE_DRAG_RECT_WIDTH.swap(0, Ordering::Relaxed);
-            let initial_height = NATIVE_DRAG_RECT_HEIGHT.swap(0, Ordering::Relaxed);
+            let source = NATIVE_DRAG.load(Ordering::Acquire);
+            let owns_context = native_drag_end_owns(source, h)
+                && NATIVE_DRAG
+                    .compare_exchange(source, 0, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok();
+            let (
+                start_monitor,
+                started_caption,
+                start_x,
+                start_y,
+                initial_left,
+                initial_top,
+                initial_width,
+                initial_height,
+            ) = if owns_context {
+                (
+                    NATIVE_DRAG_MONITOR.swap(0, Ordering::Relaxed),
+                    NATIVE_DRAG_CAPTION.swap(false, Ordering::Relaxed),
+                    NATIVE_DRAG_ORIGIN_X.swap(0, Ordering::Relaxed),
+                    NATIVE_DRAG_ORIGIN_Y.swap(0, Ordering::Relaxed),
+                    NATIVE_DRAG_RECT_LEFT.swap(0, Ordering::Relaxed),
+                    NATIVE_DRAG_RECT_TOP.swap(0, Ordering::Relaxed),
+                    NATIVE_DRAG_RECT_WIDTH.swap(0, Ordering::Relaxed),
+                    NATIVE_DRAG_RECT_HEIGHT.swap(0, Ordering::Relaxed),
+                )
+            } else {
+                (0, false, 0, 0, 0, 0, 0, 0)
+            };
             if is_managed(h) || independent_seen(h) {
                 push_cmd(Cmd::RefreshIndependence(h));
             }
@@ -21372,12 +21401,12 @@ unsafe extern "system" fn win_event_proc(
                     },
                     pt,
                 );
-            let as_move = source == h
+            let as_move = owns_context
                 && is_managed(h)
                 && has_rect
                 && !zoomed
                 && (transferred || (started_caption && moved) || geometry_moved);
-            if log_on(LOG_DEBUG) && source == h && is_managed(h) {
+            if log_on(LOG_DEBUG) && owns_context && is_managed(h) {
                 log_debug!(
                     "native drag hwnd={h:#x} caption={started_caption} cursor_moved={moved} geom_move={geometry_moved} transferred={transferred} accepted={as_move} zoomed={zoomed}"
                 );
@@ -27587,6 +27616,16 @@ mod tests {
             POINT { x: -1000, y: 70 },
             POINT { x: 830, y: 70 },
         ));
+    }
+
+    #[test]
+    fn native_drag_end_cannot_consume_another_window_context() {
+        // A stale END(A) may arrive after START(B). It must leave B's
+        // published snapshot available for END(B); an empty context is also
+        // never owned by an END event.
+        assert!(!native_drag_end_owns(0, 10));
+        assert!(!native_drag_end_owns(20, 10));
+        assert!(native_drag_end_owns(20, 20));
     }
 
     #[test]
